@@ -39,6 +39,11 @@ pub mod carrier {
         instructions::settle_note(ctx, note, hops)
     }
 
+    /// Recover the unspent balance and bond once the epoch can no longer settle.
+    pub fn close_pouch(ctx: Context<ClosePouch>) -> Result<()> {
+        instructions::close_pouch(ctx)
+    }
+
     /// Slash the bond of a sender who signed two notes against the same slot.
     pub fn prove_double_spend(
         ctx: Context<ProveDoubleSpend>,

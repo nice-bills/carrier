@@ -76,7 +76,8 @@ not eliminate it, and we don't say it does.
 programs/carrier/       Anchor program — pouches, settlement, slashing
   src/state.rs          Pouch, Note, Hop; wire format and hashing
   src/ed25519.rs        Precompile introspection for offline signatures
-  src/instructions.rs   open_pouch, refill_pouch, settle_note, prove_double_spend
+  src/instructions.rs   open_pouch, refill_pouch, settle_note, close_pouch,
+                        prove_double_spend
 packages/protocol/      Shared TypeScript: wire codec + multi-sig ed25519 builder
 app/                    Expo / React Native client with the BLE mesh
 docs/PROTOCOL.md        Design document

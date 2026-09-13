@@ -9,8 +9,12 @@ pub enum CarrierError {
     #[msg("required signature was not verified by the ed25519 precompile")]
     SignatureNotVerified,
 
+    #[msg("note was issued against a different pouch")]
+    PouchMismatch,
     #[msg("note was issued against a different pouch epoch")]
     EpochMismatch,
+    #[msg("note expiry is beyond the maximum lifetime for its epoch")]
+    NoteLifetimeTooLong,
     #[msg("note has expired")]
     NoteExpired,
     #[msg("note slot has already settled; this note is a double spend or a replay")]

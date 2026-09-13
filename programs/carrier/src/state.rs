@@ -9,6 +9,14 @@ pub const SLOTS_PER_EPOCH: u16 = 256;
 /// and keeps the ed25519 precompile instruction under the packet limit.
 pub const MAX_HOPS: usize = 8;
 
+/// How long after an epoch starts a note from that epoch may remain settleable.
+///
+/// This exists so committed funds are recoverable. Without an upper bound on
+/// note expiry, the owner could never safely withdraw: any note still in someone's
+/// pocket might settle later and the vault has to be able to honour it. Capping
+/// expiry gives a moment after which the epoch is provably closed.
+pub const MAX_NOTE_LIFETIME_SECONDS: i64 = 30 * 24 * 60 * 60;
+
 pub const NOTE_DOMAIN: &[u8] = b"carrier:note:v1";
 pub const HOP_DOMAIN: &[u8] = b"carrier:hop:v1";
 
@@ -27,6 +35,10 @@ pub struct Pouch {
     pub bond: u64,
     /// Increments on refill. Notes are only valid for the epoch they name.
     pub epoch: u32,
+    /// When the current epoch began. Notes may not outlive
+    /// `epoch_started_at + MAX_NOTE_LIFETIME_SECONDS`, which is what makes the
+    /// remaining balance recoverable via `close_pouch`.
+    pub epoch_started_at: i64,
     /// 256-bit map of which note slots have settled this epoch.
     ///
     /// A bitmap rather than a monotonic counter because notes in a mesh arrive
@@ -42,6 +54,12 @@ impl Pouch {
     /// offline exposure ceiling.
     pub fn available(&self) -> u64 {
         self.committed.saturating_sub(self.settled)
+    }
+
+    /// After this instant no note from the current epoch can settle, so whatever
+    /// is left in the vault is safe to withdraw.
+    pub fn epoch_closes_at(&self) -> i64 {
+        self.epoch_started_at.saturating_add(MAX_NOTE_LIFETIME_SECONDS)
     }
 
     pub fn is_slot_spent(&self, slot_index: u8) -> bool {
@@ -194,6 +212,7 @@ mod tests {
             settled: 0,
             bond: 0,
             epoch: 0,
+            epoch_started_at: 0,
             spent: [0u64; 4],
             bump: 0,
             vault_bump: 0,
@@ -222,6 +241,7 @@ mod tests {
             settled: 250,
             bond: 0,
             epoch: 0,
+            epoch_started_at: 0,
             spent: [0u64; 4],
             bump: 0,
             vault_bump: 0,
@@ -237,6 +257,13 @@ mod tests {
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
+}
+
+#[event]
+pub struct PouchClosed {
+    pub pouch: Pubkey,
+    pub owner: Pubkey,
+    pub returned: u64,
 }
 
 #[event]

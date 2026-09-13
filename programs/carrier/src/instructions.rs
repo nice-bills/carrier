@@ -75,6 +75,7 @@ pub fn open_pouch(ctx: Context<OpenPouch>, amount: u64, bond: u64) -> Result<()>
     pouch.settled = 0;
     pouch.bond = bond;
     pouch.epoch = 0;
+    pouch.epoch_started_at = Clock::get()?.unix_timestamp;
     pouch.clear_slots();
     pouch.bump = ctx.bumps.pouch;
     pouch.vault_bump = ctx.bumps.vault;
@@ -133,6 +134,7 @@ pub fn refill_pouch(ctx: Context<RefillPouch>, amount: u64) -> Result<()> {
         .checked_add(amount)
         .ok_or(CarrierError::MathOverflow)?;
     pouch.epoch = pouch.epoch.checked_add(1).ok_or(CarrierError::MathOverflow)?;
+    pouch.epoch_started_at = Clock::get()?.unix_timestamp;
     pouch.clear_slots();
 
     Ok(())
@@ -190,9 +192,15 @@ pub fn settle_note<'info>(
     let clock = Clock::get()?;
 
     // --- note validity -----------------------------------------------------
-    require_keys_eq!(note.pouch, ctx.accounts.pouch.key(), CarrierError::EpochMismatch);
+    require_keys_eq!(note.pouch, ctx.accounts.pouch.key(), CarrierError::PouchMismatch);
     require!(note.epoch == ctx.accounts.pouch.epoch, CarrierError::EpochMismatch);
     require!(clock.unix_timestamp <= note.expiry, CarrierError::NoteExpired);
+    // Bounding expiry is what makes `close_pouch` safe: past this instant the
+    // owner may withdraw knowing nothing else can settle against the epoch.
+    require!(
+        note.expiry <= ctx.accounts.pouch.epoch_closes_at(),
+        CarrierError::NoteLifetimeTooLong
+    );
     require!(
         !ctx.accounts.pouch.is_slot_spent(note.slot_index),
         CarrierError::SlotAlreadySpent
@@ -447,6 +455,96 @@ pub fn prove_double_spend(
         note_b: hash_b,
         slashed: bond,
         prover: ctx.accounts.prover.key(),
+    });
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// close_pouch
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+pub struct ClosePouch<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [POUCH_SEED, owner.key().as_ref(), mint.key().as_ref()],
+        bump = pouch.bump,
+        has_one = owner,
+        has_one = mint,
+        close = owner,
+    )]
+    pub pouch: Account<'info, Pouch>,
+
+    #[account(mut, seeds = [VAULT_SEED, pouch.key().as_ref()], bump = pouch.vault_bump)]
+    pub vault: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(mut, token::mint = mint, token::authority = owner)]
+    pub destination: InterfaceAccount<'info, TokenAccount>,
+
+    pub mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
+/// Recover everything left in the pouch once the epoch can no longer settle.
+///
+/// Without this, committed funds are locked forever — the vault has to stay
+/// solvent for any note still in someone's pocket, and nothing ever told it when
+/// that stopped being possible. `MAX_NOTE_LIFETIME_SECONDS` is what ends it:
+/// `settle_note` refuses notes expiring past `epoch_closes_at`, so once that
+/// instant passes the remaining balance is provably unclaimable by anyone else.
+///
+/// This returns the unspent balance *and* the bond. A bond that was already
+/// slashed is zero by then, so a cheat cannot be undone by closing.
+pub fn close_pouch(ctx: Context<ClosePouch>) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    require!(
+        now > ctx.accounts.pouch.epoch_closes_at(),
+        CarrierError::PouchNotDrainable
+    );
+
+    let pouch_owner = ctx.accounts.pouch.owner;
+    let pouch_mint = ctx.accounts.pouch.mint;
+    let pouch_bump = ctx.accounts.pouch.bump;
+    let signer_seeds: &[&[&[u8]]] = &[&[
+        POUCH_SEED,
+        pouch_owner.as_ref(),
+        pouch_mint.as_ref(),
+        &[pouch_bump],
+    ]];
+
+    // Drain whatever is actually in the vault rather than a computed figure, so
+    // rounding dust from relay-fee splits leaves with the owner instead of being
+    // stranded in a closed account.
+    let remaining = ctx.accounts.vault.amount;
+    transfer_tokens(
+        &ctx.accounts.token_program,
+        &ctx.accounts.vault,
+        &ctx.accounts.destination,
+        &ctx.accounts.mint,
+        ctx.accounts.pouch.to_account_info(),
+        remaining,
+        Some(signer_seeds),
+    )?;
+
+    // Reclaim the vault's rent too; `close = owner` on the pouch handles its own.
+    token_interface::close_account(CpiContext::new_with_signer(
+        ctx.accounts.token_program.key(),
+        token_interface::CloseAccount {
+            account: ctx.accounts.vault.to_account_info(),
+            destination: ctx.accounts.owner.to_account_info(),
+            authority: ctx.accounts.pouch.to_account_info(),
+        },
+        signer_seeds,
+    ))?;
+
+    emit!(PouchClosed {
+        pouch: ctx.accounts.pouch.key(),
+        owner: pouch_owner,
+        returned: remaining,
     });
 
     Ok(())
