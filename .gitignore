@@ -1,0 +1,24 @@
+target/
+node_modules/
+dist/
+.anchor/
+test-ledger/
+.DS_Store
+*.log
+
+# Never commit keypairs. Program keypairs are regenerated per environment.
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!app.json
+!eas.json
+
+.env
+.env.*
+!.env.example
+
+# Expo
+app/.expo/
+app/android/
+app/ios/

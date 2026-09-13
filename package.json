@@ -1,0 +1,21 @@
+{
+  "name": "carrier",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-first value transfer that settles when any carrier reconnects",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "app"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
