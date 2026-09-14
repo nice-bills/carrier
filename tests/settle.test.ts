@@ -112,10 +112,7 @@ describe("carrier settlement", () => {
     settler = Keypair.generate();
 
     // The sender needs lamports because opening a pouch is the one online step.
-    for (const kp of [sender.keypair, settler]) {
-      const sig = await connection.requestAirdrop(kp.publicKey, LAMPORTS_PER_SOL);
-      await connection.confirmTransaction(sig, "confirmed");
-    }
+    await fund([sender.publicKey, settler.publicKey], LAMPORTS_PER_SOL);
 
     mint = await createMint(connection, payer, payer.publicKey, null, DECIMALS);
 
@@ -155,6 +152,39 @@ describe("carrier settlement", () => {
 
     lookupTable = await buildLookupTable();
   }, 120_000);
+
+  /**
+   * Give the cast enough lamports to sign with.
+   *
+   * Airdrops only exist on a local validator. Devnet's faucet is rate-limited
+   * per IP and will refuse a run that wants several funded keypairs, so on any
+   * real cluster the money comes from the wallet that is already paying — which
+   * is what a deployment script would do anyway.
+   */
+  async function fund(targets: PublicKey[], lamports: number) {
+    const local = connection.rpcEndpoint.includes("localhost") ||
+      connection.rpcEndpoint.includes("127.0.0.1");
+
+    if (local) {
+      for (const target of targets) {
+        const sig = await connection.requestAirdrop(target, lamports);
+        await connection.confirmTransaction(sig, "confirmed");
+      }
+      return;
+    }
+
+    const tx = new anchor.web3.Transaction();
+    for (const target of targets) {
+      tx.add(
+        SystemProgram.transfer({
+          fromPubkey: payer.publicKey,
+          toPubkey: target,
+          lamports,
+        }),
+      );
+    }
+    await provider.sendAndConfirm!(tx, [payer]);
+  }
 
   /** Put every account a settlement touches into one lookup table. */
   async function buildLookupTable(): Promise<anchor.web3.AddressLookupTableAccount> {
