@@ -39,6 +39,31 @@ pub mod carrier {
         instructions::settle_note(ctx, note, hops)
     }
 
+    /// Open a draft so a long chain can be verified across several transactions.
+    pub fn begin_settlement(ctx: Context<BeginSettlement>, note: Note) -> Result<()> {
+        instructions::begin_settlement(ctx, note)
+    }
+
+    /// Verify the next few hops into an open draft.
+    pub fn extend_settlement(
+        ctx: Context<ExtendSettlement>,
+        claims: Vec<HopClaim>,
+    ) -> Result<()> {
+        instructions::extend_settlement(ctx, claims)
+    }
+
+    /// Pay out a chain whose every hop has been verified.
+    pub fn finalize_settlement<'info>(
+        ctx: Context<'info, FinalizeSettlement<'info>>,
+    ) -> Result<()> {
+        instructions::finalize_settlement(ctx)
+    }
+
+    /// Give up on a draft and reclaim its rent.
+    pub fn abandon_settlement(ctx: Context<AbandonSettlement>) -> Result<()> {
+        instructions::abandon_settlement(ctx)
+    }
+
     /// Recover the unspent balance and bond once the epoch can no longer settle.
     pub fn close_pouch(ctx: Context<ClosePouch>) -> Result<()> {
         instructions::close_pouch(ctx)

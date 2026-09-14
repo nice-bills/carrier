@@ -3,6 +3,7 @@ export {
   HOP_DOMAIN,
   SLOTS_PER_EPOCH,
   MAX_HOPS,
+  MAX_CHAIN,
   encodeNote,
   encodeHop,
   hashNote,

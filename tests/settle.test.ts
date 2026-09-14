@@ -14,6 +14,7 @@ import {
   createAssociatedTokenAccount,
   mintTo,
   getAccount,
+  getAssociatedTokenAddress,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import nacl from "tweetnacl";
@@ -201,6 +202,201 @@ describe("carrier settlement", () => {
   }
 
   /**
+   * A chain longer than one transaction can verify.
+   *
+   * This is the point of the draft: signature checking is what does not fit, so
+   * it is accumulated across several transactions and the payout happens once,
+   * at the end. Four hops is twice what `settle_note` can manage.
+   */
+  it("settles a four-hop chain by accumulating verification", async () => {
+    const chain = [new Device(), new Device(), new Device(), new Device()];
+    const atas = await Promise.all(
+      chain.map((d) => createAssociatedTokenAccount(connection, payer, mint, d.publicKey)),
+    );
+
+    const amount = 20n * ONE_TOKEN;
+    const note = buildNote(88, amount, 400); // 4% split four ways
+    const { entries, times: hopTimes } = carry(note, chain);
+
+    const [draft] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("draft"),
+        pouch.toBuffer(),
+        Buffer.from([note.slotIndex]),
+        Buffer.from(new Uint32Array([note.epoch]).buffer),
+      ],
+      PROGRAM_ID,
+    );
+
+    // 1. Prove the sender authorised the note. One signature.
+    await program.methods
+      .beginSettlement(noteArg(note))
+      .accounts({
+        settler: settler.publicKey,
+        pouch,
+        draft,
+        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        systemProgram: SystemProgram.programId,
+      })
+      .preInstructions([createEd25519Instruction([entries[0]!])])
+      .signers([settler])
+      .rpc();
+
+    // 2. Verify the hops two at a time — exactly what fits in one transaction.
+    for (let i = 0; i < chain.length; i += 2) {
+      const batch = chain.slice(i, i + 2);
+      // entries[0] is the note; each hop contributes two co-signatures.
+      const hopEntries = entries.slice(1 + i * 2, 1 + (i + batch.length) * 2);
+
+      await program.methods
+        .extendSettlement(
+          batch.map((d, j) => ({
+            relayer: d.publicKey,
+            at: new BN(hopTimes[i + j]!.toString()),
+          })),
+        )
+        .accounts({
+          settler: settler.publicKey,
+          draft,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .preInstructions([createEd25519Instruction(hopEntries)])
+        .signers([settler])
+        .rpc();
+    }
+
+    const before = await Promise.all(atas.map(balance));
+    const recipientBefore = await balance(recipientAta);
+
+    // 3. Pay out. No signatures here at all — they are already verified.
+    await program.methods
+      .finalizeSettlement()
+      .accounts({
+        settler: settler.publicKey,
+        pouch,
+        draft,
+        vault,
+        recipient: recipientAta,
+        settlerPayout: settlerAta,
+        mint,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .remainingAccounts(
+        atas.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })),
+      )
+      .signers([settler])
+      .rpc();
+
+    const relayFee = (amount * 400n) / 10_000n;
+    const perRelayer = relayFee / 4n;
+
+    expect(await balance(recipientAta)).toBe(recipientBefore + amount - relayFee);
+    for (let i = 0; i < atas.length; i += 1) {
+      expect(await balance(atas[i]!)).toBe(before[i]! + perRelayer);
+    }
+
+    // The draft is gone and its rent returned.
+    expect(await connection.getAccountInfo(draft)).toBeNull();
+
+    const state: any = await program.account.pouch.fetch(pouch);
+    expect((state.spent[1].toNumber() >> (88 - 64)) & 1).toBe(1);
+  }, 120_000);
+
+  /**
+   * Taking a relay fee without carrying anything.
+   *
+   * Neither rule stops one person with two phones — nothing on-chain can, since
+   * two phones in a pocket are genuinely two keys that genuinely met. What they
+   * close are the cheaper versions: bouncing a note between two keys to mint
+   * hops, and the sender quietly paying themselves a carrier's share.
+   */
+  it("refuses a chain where the same key carries twice", async () => {
+    const note = buildNote(120, ONE_TOKEN);
+    const noteHash = hashNote(note);
+    const entries: SignatureEntry[] = [sender.entry(noteSigningPayload(note))];
+
+    // sender -> A -> A. Both hops are genuinely co-signed; A simply appears
+    // twice, which would earn it two shares of a fixed pot.
+    const claims: any[] = [];
+    let prev: Device = sender;
+    for (let seq = 0; seq < 2; seq += 1) {
+      const at = BigInt(Math.floor(Date.now() / 1000));
+      const hop = { noteHash, relayer: relayerA.publicKey, prev: prev.publicKey, seq, at };
+      const message = hopSigningPayload(hop);
+      entries.push(relayerA.entry(message), prev.entry(message));
+      claims.push({ relayer: relayerA.publicKey, at: new BN(at.toString()) });
+      prev = relayerA;
+    }
+
+    const ix = await program.methods
+      .settleNote(noteArg(note), claims)
+      .accounts({
+        settler: settler.publicKey,
+        pouch,
+        vault,
+        recipient: recipientAta,
+        settlerPayout: settlerAta,
+        mint,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+      })
+      .remainingAccounts([
+        { pubkey: relayerAAta, isSigner: false, isWritable: true },
+        { pubkey: relayerAAta, isSigner: false, isWritable: true },
+      ])
+      .instruction();
+
+    await expect(
+      sendSettled([createEd25519Instruction(entries), ix], [settler]),
+    ).rejects.toThrow(/RepeatedCarrier/);
+  }, 60_000);
+
+  it("refuses to pay the sender as one of its own carriers", async () => {
+    const note = buildNote(121, ONE_TOKEN);
+    const noteHash = hashNote(note);
+    const at = BigInt(Math.floor(Date.now() / 1000));
+
+    // The sender hands to itself: a real co-signed hop, but the sender is a
+    // party to the payment, not a carrier of it.
+    const hop = {
+      noteHash,
+      relayer: sender.publicKey,
+      prev: sender.publicKey,
+      seq: 0,
+      at,
+    };
+    const message = hopSigningPayload(hop);
+    const entries: SignatureEntry[] = [
+      sender.entry(noteSigningPayload(note)),
+      sender.entry(message),
+    ];
+
+    const senderAta = await getAssociatedTokenAddress(mint, sender.publicKey);
+    const ix = await program.methods
+      .settleNote(noteArg(note), [
+        { relayer: sender.publicKey, at: new BN(at.toString()) },
+      ])
+      .accounts({
+        settler: settler.publicKey,
+        pouch,
+        vault,
+        recipient: recipientAta,
+        settlerPayout: settlerAta,
+        mint,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+      })
+      .remainingAccounts([
+        { pubkey: senderAta, isSigner: false, isWritable: true },
+      ])
+      .instruction();
+
+    await expect(
+      sendSettled([createEd25519Instruction(entries), ix], [settler]),
+    ).rejects.toThrow(/SelfDealingCarrier/);
+  }, 60_000);
+
+  /**
    * How long a chain actually fits in one transaction.
    *
    * `MAX_HOPS` is a promise the mesh makes to itself: devices keep extending a
@@ -216,7 +412,7 @@ describe("carrier settlement", () => {
     for (let hops = 1; hops <= 8; hops += 1) {
       const chain = Array.from({ length: hops }, () => new Device());
       const note = buildNote(200 + hops, ONE_TOKEN);
-      const { entries } = carry(note, chain);
+      const { entries, times: hopTimes } = carry(note, chain);
       const claims = chain.map((d) => ({
         relayer: d.publicKey,
         at: new BN(Math.floor(Date.now() / 1000)),
@@ -300,16 +496,21 @@ describe("carrier settlement", () => {
   function carry(note: ReturnType<typeof buildNote>, chain: Device[]) {
     const noteHash = hashNote(note);
     const hops: any[] = [];
+    // The exact instants that were signed. A claim built from a fresh
+    // `Date.now()` would describe a different hop and fail to verify.
+    const times: bigint[] = [];
     const entries: SignatureEntry[] = [sender.entry(noteSigningPayload(note))];
 
     let prev = sender;
     chain.forEach((relayer, seq) => {
+      const at = BigInt(Math.floor(Date.now() / 1000));
+      times.push(at);
       const hop = {
         noteHash,
         relayer: relayer.publicKey,
         prev: prev.publicKey,
         seq,
-        at: BigInt(Math.floor(Date.now() / 1000)),
+        at,
       };
       const message = hopSigningPayload(hop);
 
@@ -324,7 +525,7 @@ describe("carrier settlement", () => {
       prev = relayer;
     });
 
-    return { hops, entries };
+    return { hops, entries, times };
   }
 
   async function balance(ata: PublicKey): Promise<bigint> {
@@ -364,6 +565,9 @@ describe("carrier settlement", () => {
     const note = buildNote(7, amount, 200); // 2% to the carriers
     const { hops, entries } = carry(note, [relayerA, relayerB]);
 
+    const settledBefore = BigInt(
+      ((await program.account.pouch.fetch(pouch)) as any).settled.toString(),
+    );
     const before = {
       recipient: await balance(recipientAta),
       relayerA: await balance(relayerAAta),
@@ -400,7 +604,9 @@ describe("carrier settlement", () => {
     expect(await balance(relayerBAta)).toBe(before.relayerB + perRelayer);
 
     const state: any = await program.account.pouch.fetch(pouch);
-    expect(state.settled.toString()).toBe(amount.toString());
+    // A delta, not an absolute: other tests in this file settle against the
+    // same pouch, so the running total is not this note's amount.
+    expect(BigInt(state.settled.toString()) - settledBefore).toBe(amount);
     // Slot 7 lives in the first word of the bitmap.
     expect((state.spent[0].toNumber() >> 7) & 1).toBe(1);
   }, 60_000);

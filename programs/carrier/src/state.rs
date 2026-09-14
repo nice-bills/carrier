@@ -95,7 +95,7 @@ impl Pouch {
 
 /// An offline payment. Signed by the pouch owner, carried by strangers, settled
 /// by whoever reconnects first.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq, InitSpace)]
 pub struct Note {
     pub pouch: Pubkey,
     pub to: Pubkey,
@@ -183,6 +183,63 @@ impl Hop {
     pub fn signing_payload(&self) -> [u8; 32] {
         hashv(&[&self.message()]).to_bytes()
     }
+}
+
+/// Longest chain settleable by accumulating verification across transactions.
+///
+/// `MAX_HOPS` is what fits in a *single* transaction. This is the ceiling for
+/// the multi-transaction path, and it is bounded by the payout instead: every
+/// relayer needs a token account in the finalising transaction and a transfer
+/// CPI, so the limit is compute and account count rather than signature bytes.
+pub const MAX_CHAIN: usize = 16;
+
+/// Verification-in-progress for one note.
+///
+/// Signature checking is the expensive part and it does not all fit in one
+/// transaction, so it is accumulated here across several. The draft only ever
+/// holds state the program itself verified: each `extend_settlement` checks the
+/// next hops against the chain recorded so far, so a draft can never describe a
+/// chain nobody signed.
+#[account]
+#[derive(InitSpace)]
+pub struct SettlementDraft {
+    /// The note being settled, stored whole so finalising needs no re-supply
+    /// (and so the amount cannot change between begin and finalize).
+    pub note: Note,
+    pub note_hash: [u8; 32],
+    pub pouch: Pubkey,
+    /// The pouch owner, kept here so carrier-eligibility can be checked while
+    /// extending without having to pass the pouch account to every call.
+    pub owner: Pubkey,
+    /// Who opened the draft, pays its rent, and is refunded when it closes.
+    pub settler: Pubkey,
+    /// Position the next hop must occupy.
+    pub next_seq: u8,
+    /// Who the next hop must name as its predecessor.
+    pub last_carrier: Pubkey,
+    #[max_len(MAX_CHAIN)]
+    pub lineage: Vec<Pubkey>,
+    pub bump: u8,
+}
+
+impl SettlementDraft {
+    pub fn hops_verified(&self) -> usize {
+        self.lineage.len()
+    }
+}
+
+#[event]
+pub struct SettlementStarted {
+    pub pouch: Pubkey,
+    pub note_hash: [u8; 32],
+    pub settler: Pubkey,
+}
+
+#[event]
+pub struct SettlementExtended {
+    pub note_hash: [u8; 32],
+    pub hops_verified: u8,
+    pub last_carrier: Pubkey,
 }
 
 #[event]

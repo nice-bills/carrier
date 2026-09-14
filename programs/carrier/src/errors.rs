@@ -40,6 +40,11 @@ pub enum CarrierError {
     #[msg("relay fee exceeds the note amount")]
     RelayFeeTooHigh,
 
+    #[msg("a key appears twice in the transmission chain")]
+    RepeatedCarrier,
+    #[msg("the sender or the recipient cannot also be paid as a carrier")]
+    SelfDealingCarrier,
+
     #[msg("double spend proof must reference two different notes")]
     NotesIdentical,
     #[msg("double spend proof requires both notes to share pouch, epoch and slot")]

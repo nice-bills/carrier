@@ -1,6 +1,6 @@
 import nacl from "tweetnacl";
 import {
-  MAX_HOPS,
+  MAX_CHAIN,
   hopSigningPayload,
   noteSigningPayload,
   hashNote,
@@ -74,9 +74,9 @@ export class CarrierNode {
   prepareHandoff(noteHash: string, receiver: Signer["publicKey"], at: bigint): HandoffOffer {
     const bundle = this.held.get(noteHash);
     if (!bundle) throw new MeshError(`not carrying ${noteHash.slice(0, 8)}`);
-    if (bundle.hops.length >= MAX_HOPS) {
+    if (bundle.hops.length >= MAX_CHAIN) {
       throw new MeshError(
-        `chain is full at ${MAX_HOPS} hops — settlement could not verify a longer one`,
+        `chain is full at ${MAX_CHAIN} hops — settlement could not verify a longer one`,
       );
     }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import nacl from "tweetnacl";
-import { MAX_HOPS, hopSigningPayload, hashNote, type Note } from "@carrier/protocol";
+import { MAX_CHAIN, hopSigningPayload, hashNote, type Note } from "@carrier/protocol";
 import { CarrierNode, contact } from "./node.js";
 import { MeshError, type Signer } from "./types.js";
 
@@ -70,7 +70,7 @@ describe("carrier node", () => {
     expect(carried.entries).toHaveLength(1 + 2 * 2);
   });
 
-  it("spreads through strangers, then stops at the settleable ceiling", () => {
+  it("spreads through a crowd that never meets the sender twice", () => {
     const sender = device();
     const crowd = Array.from({ length: 6 }, device);
 
@@ -84,13 +84,11 @@ describe("carrier node", () => {
       contact(crowd[i]!, crowd[i + 1]!, NOW + BigInt(i + 1));
     }
 
-    // It travels exactly as far as settlement can verify and no further.
-    // Carrying it past that point would cost those devices battery holding
-    // something no transaction could ever redeem, so the chain simply stops.
-    const carriers = crowd.filter((d) => d.holds(digest));
-    expect(carriers).toHaveLength(MAX_HOPS);
-    expect(crowd[MAX_HOPS - 1]!.bundle(digest)!.hops).toHaveLength(MAX_HOPS);
-    expect(crowd[MAX_HOPS]!.holds(digest)).toBe(false);
+    // Six hops is past what one transaction can verify but well inside what the
+    // draft can, so the chain keeps going. Before the accumulator existed this
+    // was capped at two and the mesh was barely a mesh.
+    expect(crowd.every((d) => d.holds(digest))).toBe(true);
+    expect(crowd[5]!.bundle(digest)!.hops).toHaveLength(6);
   });
 
   it("refuses a hop chain the giver did not actually co-sign", () => {
@@ -155,7 +153,7 @@ describe("carrier node", () => {
 
   it("will not extend a chain past what settlement can verify", () => {
     const sender = device();
-    const chain = Array.from({ length: MAX_HOPS + 2 }, device);
+    const chain = Array.from({ length: MAX_CHAIN + 2 }, device);
 
     sender.originate(note());
     contact(sender, chain[0]!, NOW);
@@ -166,7 +164,7 @@ describe("carrier node", () => {
     // Everyone up to the limit is carrying it; nobody past the limit is, because
     // a longer chain would exceed what one settlement instruction can verify.
     const carriers = chain.filter((d) => d.carrying > 0);
-    expect(carriers).toHaveLength(MAX_HOPS);
+    expect(carriers).toHaveLength(MAX_CHAIN);
   });
 
   it("does not take on a note that can no longer settle", () => {

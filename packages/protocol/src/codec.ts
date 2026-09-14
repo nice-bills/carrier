@@ -24,6 +24,14 @@ export const SLOTS_PER_EPOCH = 256;
  */
 export const MAX_HOPS = 2;
 
+/**
+ * Longest chain settleable at all, by accumulating signature verification
+ * across several transactions into a draft account. Mirrors MAX_CHAIN in
+ * state.rs. This is what the mesh may build up to: chains beyond `MAX_HOPS`
+ * simply settle by the slower path rather than being unredeemable.
+ */
+export const MAX_CHAIN = 16;
+
 export interface Note {
   pouch: PublicKey;
   to: PublicKey;

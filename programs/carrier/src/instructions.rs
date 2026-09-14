@@ -242,108 +242,35 @@ pub fn settle_note<'info>(
         require_signed(&verified, &hop.relayer, &payload)?;
         require_signed(&verified, &hop.prev, &payload)?;
 
+        let so_far: Vec<Pubkey> = hops.iter().map(|h: &Hop| h.relayer).collect();
+        check_carrier_eligible(
+            &hop.relayer,
+            &so_far,
+            &note,
+            &ctx.accounts.pouch.owner,
+        )?;
+
         prev = hop.relayer;
         hops.push(hop);
     }
 
-    // --- payouts -----------------------------------------------------------
-    let relay_fee = (note.amount as u128)
-        .checked_mul(note.relay_fee_bps as u128)
-        .ok_or(CarrierError::MathOverflow)?
-        .checked_div(BPS_DENOMINATOR as u128)
-        .ok_or(CarrierError::MathOverflow)? as u64;
-    require!(relay_fee <= note.amount, CarrierError::RelayFeeTooHigh);
+    let relayers: Vec<Pubkey> = hops.iter().map(|h| h.relayer).collect();
 
-    let to_recipient = note.amount.checked_sub(relay_fee).ok_or(CarrierError::MathOverflow)?;
-    let per_relayer = if hops.is_empty() {
-        0
-    } else {
-        relay_fee / hops.len() as u64
-    };
-    let relayers_total = per_relayer
-        .checked_mul(hops.len() as u64)
-        .ok_or(CarrierError::MathOverflow)?;
-    // Rounding dust plus the whole fee when nobody relayed goes to the settler,
-    // who paid the transaction fee to bring this onchain.
-    let settler_bounty = relay_fee.checked_sub(relayers_total).ok_or(CarrierError::MathOverflow)?;
-
-    // Bind the borrow of pouch fields before taking a mutable borrow below.
-    let pouch_key = ctx.accounts.pouch.key();
-    let pouch_bump = ctx.accounts.pouch.bump;
-    let pouch_owner = ctx.accounts.pouch.owner;
-    let pouch_mint = ctx.accounts.pouch.mint;
-    let signer_seeds: &[&[&[u8]]] = &[&[
-        POUCH_SEED,
-        pouch_owner.as_ref(),
-        pouch_mint.as_ref(),
-        &[pouch_bump],
-    ]];
-
-    transfer_tokens(
-        &ctx.accounts.token_program,
-        &ctx.accounts.vault,
-        &ctx.accounts.recipient,
-        &ctx.accounts.mint,
-        ctx.accounts.pouch.to_account_info(),
-        to_recipient,
-        Some(signer_seeds),
-    )?;
-
-    let mut lineage = Vec::with_capacity(hops.len() + 1);
-    lineage.push(pouch_owner);
-
-    for (hop, relayer_account) in hops.iter().zip(ctx.remaining_accounts.iter()) {
-        let parsed = InterfaceAccount::<TokenAccount>::try_from(relayer_account)?;
-        require_keys_eq!(parsed.owner, hop.relayer, CarrierError::RelayerMismatch);
-        require_keys_eq!(parsed.mint, pouch_mint, CarrierError::RelayerMismatch);
-
-        if per_relayer > 0 {
-            transfer_tokens(
-                &ctx.accounts.token_program,
-                &ctx.accounts.vault,
-                &parsed,
-                &ctx.accounts.mint,
-                ctx.accounts.pouch.to_account_info(),
-                per_relayer,
-                Some(signer_seeds),
-            )?;
-        }
-        lineage.push(hop.relayer);
-    }
-
-    if settler_bounty > 0 {
-        transfer_tokens(
-            &ctx.accounts.token_program,
-            &ctx.accounts.vault,
-            &ctx.accounts.settler_payout,
-            &ctx.accounts.mint,
-            ctx.accounts.pouch.to_account_info(),
-            settler_bounty,
-            Some(signer_seeds),
-        )?;
-    }
-
-    // --- commit ------------------------------------------------------------
-    let pouch = &mut ctx.accounts.pouch;
-    pouch.mark_slot_spent(note.slot_index);
-    pouch.settled = pouch
-        .settled
-        .checked_add(note.amount)
-        .ok_or(CarrierError::MathOverflow)?;
-
-    emit!(NoteSettled {
-        pouch: pouch_key,
-        note_hash,
-        to: note.to,
-        amount: note.amount,
-        slot_index: note.slot_index,
-        epoch: note.epoch,
-        lineage,
-        relay_fee_paid: relay_fee,
-        settled_by: ctx.accounts.settler.key(),
-    });
-
-    Ok(())
+    pay_out_and_commit(
+        Payout {
+            token_program: &ctx.accounts.token_program,
+            vault: &ctx.accounts.vault,
+            recipient: &ctx.accounts.recipient,
+            settler_payout: &ctx.accounts.settler_payout,
+            mint: &ctx.accounts.mint,
+            pouch_account: ctx.accounts.pouch.to_account_info(),
+            relayer_accounts: ctx.remaining_accounts,
+        },
+        &mut ctx.accounts.pouch,
+        &note,
+        &relayers,
+        ctx.accounts.settler.key(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -584,4 +511,444 @@ fn transfer_tokens<'info>(
     };
 
     token_interface::transfer_checked(cpi, amount, mint.decimals)
+}
+
+
+/// Reject a carrier that has no business being paid for this note.
+///
+/// Two rules, both cheap and both closing a way to take relay fees without
+/// carrying anything:
+///
+/// - **No repeats.** A key may appear once in a chain. Without this, one device
+///   can pass a note back and forth with an accomplice to manufacture hops.
+/// - **No self-dealing.** The sender and the recipient are parties to the
+///   payment, not carriers of it; paying them a relay fee is just the sender
+///   discounting their own note at the honest carriers' expense.
+///
+/// Neither rule stops one person with two phones — nothing at this layer can,
+/// because two phones in one pocket are genuinely two keys that genuinely met.
+/// What bounds that attack is economic: `relay_fee_bps` fixes the pot before the
+/// note ever leaves, and every extra hop divides it further rather than adding
+/// to it. Inflating a chain dilutes your own share; it does not mint a new one.
+fn check_carrier_eligible(
+    relayer: &Pubkey,
+    chain_so_far: &[Pubkey],
+    note: &Note,
+    pouch_owner: &Pubkey,
+) -> Result<()> {
+    require!(
+        !chain_so_far.contains(relayer),
+        CarrierError::RepeatedCarrier
+    );
+    require!(
+        relayer != pouch_owner && *relayer != note.to,
+        CarrierError::SelfDealingCarrier
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// shared payout
+// ---------------------------------------------------------------------------
+
+pub const DRAFT_SEED: &[u8] = b"draft";
+
+/// The accounts a payout touches, independent of which instruction is paying.
+///
+/// Both settlement paths end identically — the difference is only in how the
+/// chain got verified — so the money movement lives in one place rather than
+/// being written twice and drifting.
+struct Payout<'a, 'info> {
+    token_program: &'a Interface<'info, TokenInterface>,
+    vault: &'a InterfaceAccount<'info, TokenAccount>,
+    recipient: &'a InterfaceAccount<'info, TokenAccount>,
+    settler_payout: &'a InterfaceAccount<'info, TokenAccount>,
+    mint: &'a InterfaceAccount<'info, Mint>,
+    pouch_account: AccountInfo<'info>,
+    /// One token account per relayer, in lineage order. Borrowed for `'info`
+    /// rather than `'a` because `InterfaceAccount::try_from` needs a reference
+    /// that lives as long as the account data it wraps.
+    relayer_accounts: &'info [AccountInfo<'info>],
+}
+
+/// Pay the recipient and everyone who carried the note, then mark the slot.
+fn pay_out_and_commit<'info>(
+    accounts: Payout<'_, 'info>,
+    pouch: &mut Account<'info, Pouch>,
+    note: &Note,
+    relayers: &[Pubkey],
+    settled_by: Pubkey,
+) -> Result<()> {
+    require!(
+        accounts.relayer_accounts.len() == relayers.len(),
+        CarrierError::RelayerAccountsMismatch
+    );
+
+    let relay_fee = (note.amount as u128)
+        .checked_mul(note.relay_fee_bps as u128)
+        .ok_or(CarrierError::MathOverflow)?
+        .checked_div(BPS_DENOMINATOR as u128)
+        .ok_or(CarrierError::MathOverflow)? as u64;
+    require!(relay_fee <= note.amount, CarrierError::RelayFeeTooHigh);
+
+    let to_recipient = note
+        .amount
+        .checked_sub(relay_fee)
+        .ok_or(CarrierError::MathOverflow)?;
+    let per_relayer = if relayers.is_empty() {
+        0
+    } else {
+        relay_fee / relayers.len() as u64
+    };
+    let relayers_total = per_relayer
+        .checked_mul(relayers.len() as u64)
+        .ok_or(CarrierError::MathOverflow)?;
+    // Rounding dust, plus the whole fee when nobody relayed, goes to whoever
+    // paid the transaction fee to bring this onchain.
+    let settler_bounty = relay_fee
+        .checked_sub(relayers_total)
+        .ok_or(CarrierError::MathOverflow)?;
+
+    let pouch_key = pouch.key();
+    let pouch_owner = pouch.owner;
+    let pouch_mint = pouch.mint;
+    let pouch_bump = pouch.bump;
+    let signer_seeds: &[&[&[u8]]] = &[&[
+        POUCH_SEED,
+        pouch_owner.as_ref(),
+        pouch_mint.as_ref(),
+        &[pouch_bump],
+    ]];
+
+    transfer_tokens(
+        accounts.token_program,
+        accounts.vault,
+        accounts.recipient,
+        accounts.mint,
+        accounts.pouch_account.clone(),
+        to_recipient,
+        Some(signer_seeds),
+    )?;
+
+    let mut lineage = Vec::with_capacity(relayers.len() + 1);
+    lineage.push(pouch_owner);
+
+    for (relayer, account) in relayers.iter().zip(accounts.relayer_accounts.iter()) {
+        let parsed = InterfaceAccount::<TokenAccount>::try_from(account)?;
+        require_keys_eq!(parsed.owner, *relayer, CarrierError::RelayerMismatch);
+        require_keys_eq!(parsed.mint, pouch_mint, CarrierError::RelayerMismatch);
+
+        if per_relayer > 0 {
+            transfer_tokens(
+                accounts.token_program,
+                accounts.vault,
+                &parsed,
+                accounts.mint,
+                accounts.pouch_account.clone(),
+                per_relayer,
+                Some(signer_seeds),
+            )?;
+        }
+        lineage.push(*relayer);
+    }
+
+    if settler_bounty > 0 {
+        transfer_tokens(
+            accounts.token_program,
+            accounts.vault,
+            accounts.settler_payout,
+            accounts.mint,
+            accounts.pouch_account.clone(),
+            settler_bounty,
+            Some(signer_seeds),
+        )?;
+    }
+
+    pouch.mark_slot_spent(note.slot_index);
+    pouch.settled = pouch
+        .settled
+        .checked_add(note.amount)
+        .ok_or(CarrierError::MathOverflow)?;
+
+    emit!(NoteSettled {
+        pouch: pouch_key,
+        note_hash: note.hash(),
+        to: note.to,
+        amount: note.amount,
+        slot_index: note.slot_index,
+        epoch: note.epoch,
+        lineage,
+        relay_fee_paid: relay_fee,
+        settled_by,
+    });
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// begin_settlement / extend_settlement / finalize_settlement
+// ---------------------------------------------------------------------------
+//
+// Chains longer than MAX_HOPS cannot be verified in one transaction: each hop
+// costs two 96-byte signatures and a transaction is capped at 1232 bytes. These
+// three instructions accumulate the same verification across several
+// transactions into a draft account, so chain length stops being bounded by
+// what fits in a packet.
+
+#[derive(Accounts)]
+#[instruction(note: Note)]
+pub struct BeginSettlement<'info> {
+    #[account(mut)]
+    pub settler: Signer<'info>,
+
+    #[account(
+        seeds = [POUCH_SEED, pouch.owner.as_ref(), pouch.mint.as_ref()],
+        bump = pouch.bump,
+    )]
+    pub pouch: Account<'info, Pouch>,
+
+    #[account(
+        init,
+        payer = settler,
+        space = 8 + SettlementDraft::INIT_SPACE,
+        seeds = [DRAFT_SEED, pouch.key().as_ref(), &[note.slot_index], &note.epoch.to_le_bytes()],
+        bump,
+    )]
+    pub draft: Account<'info, SettlementDraft>,
+
+    /// CHECK: address-constrained to the instructions sysvar.
+    #[account(address = INSTRUCTIONS_SYSVAR_ID)]
+    pub instructions: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+/// Open a draft by proving the sender authorised this note.
+///
+/// Seeded by pouch, slot and epoch rather than by note hash: two different notes
+/// against the same slot are exactly the double-spend case, and this way the
+/// second one cannot open a competing draft.
+pub fn begin_settlement(ctx: Context<BeginSettlement>, note: Note) -> Result<()> {
+    let clock = Clock::get()?;
+    let pouch = &ctx.accounts.pouch;
+
+    require_keys_eq!(note.pouch, pouch.key(), CarrierError::PouchMismatch);
+    require!(note.epoch == pouch.epoch, CarrierError::EpochMismatch);
+    require!(clock.unix_timestamp <= note.expiry, CarrierError::NoteExpired);
+    require!(
+        note.expiry <= pouch.epoch_closes_at(),
+        CarrierError::NoteLifetimeTooLong
+    );
+    require!(
+        !pouch.is_slot_spent(note.slot_index),
+        CarrierError::SlotAlreadySpent
+    );
+
+    let verified = collect_verified_signatures(&ctx.accounts.instructions)?;
+    require_signed(&verified, &pouch.owner, &note.signing_payload())?;
+
+    let note_hash = note.hash();
+    let draft = &mut ctx.accounts.draft;
+    draft.note = note;
+    draft.note_hash = note_hash;
+    draft.pouch = pouch.key();
+    draft.owner = pouch.owner;
+    draft.settler = ctx.accounts.settler.key();
+    draft.next_seq = 0;
+    draft.last_carrier = pouch.owner;
+    draft.lineage = Vec::new();
+    draft.bump = ctx.bumps.draft;
+
+    emit!(SettlementStarted {
+        pouch: pouch.key(),
+        note_hash,
+        settler: ctx.accounts.settler.key(),
+    });
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct ExtendSettlement<'info> {
+    #[account(mut)]
+    pub settler: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [
+            DRAFT_SEED,
+            draft.pouch.as_ref(),
+            &[draft.note.slot_index],
+            &draft.note.epoch.to_le_bytes(),
+        ],
+        bump = draft.bump,
+        has_one = settler,
+    )]
+    pub draft: Account<'info, SettlementDraft>,
+
+    /// CHECK: address-constrained to the instructions sysvar.
+    #[account(address = INSTRUCTIONS_SYSVAR_ID)]
+    pub instructions: UncheckedAccount<'info>,
+}
+
+/// Verify the next few hops and append them to the draft.
+///
+/// Called as many times as the chain needs. Each call takes whatever fits in one
+/// transaction; the draft remembers where the chain had got to, so a hop can
+/// only ever extend the one already verified.
+pub fn extend_settlement(
+    ctx: Context<ExtendSettlement>,
+    claims: Vec<HopClaim>,
+) -> Result<()> {
+    let verified = collect_verified_signatures(&ctx.accounts.instructions)?;
+    let draft = &mut ctx.accounts.draft;
+
+    require!(
+        draft.lineage.len() + claims.len() <= MAX_CHAIN,
+        CarrierError::TooManyHops
+    );
+
+    for claim in claims.iter() {
+        let hop = claim.expand(draft.note_hash, draft.last_carrier, draft.next_seq);
+        let payload = hop.signing_payload();
+        require_signed(&verified, &hop.relayer, &payload)?;
+        require_signed(&verified, &hop.prev, &payload)?;
+
+        check_carrier_eligible(&hop.relayer, &draft.lineage, &draft.note, &draft.owner)?;
+
+        draft.lineage.push(hop.relayer);
+        draft.last_carrier = hop.relayer;
+        draft.next_seq = draft
+            .next_seq
+            .checked_add(1)
+            .ok_or(CarrierError::MathOverflow)?;
+    }
+
+    emit!(SettlementExtended {
+        note_hash: draft.note_hash,
+        hops_verified: draft.lineage.len() as u8,
+        last_carrier: draft.last_carrier,
+    });
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct FinalizeSettlement<'info> {
+    #[account(mut)]
+    pub settler: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [POUCH_SEED, pouch.owner.as_ref(), pouch.mint.as_ref()],
+        bump = pouch.bump,
+        has_one = mint,
+    )]
+    pub pouch: Account<'info, Pouch>,
+
+    #[account(
+        mut,
+        seeds = [
+            DRAFT_SEED,
+            draft.pouch.as_ref(),
+            &[draft.note.slot_index],
+            &draft.note.epoch.to_le_bytes(),
+        ],
+        bump = draft.bump,
+        has_one = settler,
+        // Rent returns to whoever fronted it once the draft has done its job.
+        close = settler,
+    )]
+    pub draft: Account<'info, SettlementDraft>,
+
+    #[account(mut, seeds = [VAULT_SEED, pouch.key().as_ref()], bump = pouch.vault_bump)]
+    pub vault: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(mut, token::mint = mint)]
+    pub recipient: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(mut, token::mint = mint)]
+    pub settler_payout: InterfaceAccount<'info, TokenAccount>,
+
+    pub mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
+    // remaining_accounts: one token account per relayer, in lineage order.
+}
+
+/// Pay out a fully verified chain.
+pub fn finalize_settlement<'info>(
+    ctx: Context<'info, FinalizeSettlement<'info>>,
+) -> Result<()> {
+    let clock = Clock::get()?;
+    let note = ctx.accounts.draft.note.clone();
+    let relayers = ctx.accounts.draft.lineage.clone();
+
+    require_keys_eq!(
+        ctx.accounts.draft.pouch,
+        ctx.accounts.pouch.key(),
+        CarrierError::PouchMismatch
+    );
+    require!(note.epoch == ctx.accounts.pouch.epoch, CarrierError::EpochMismatch);
+    require!(clock.unix_timestamp <= note.expiry, CarrierError::NoteExpired);
+    // Re-checked here, not just at begin: a draft can sit open across many
+    // transactions and the single-transaction path could have taken the slot in
+    // the meantime.
+    require!(
+        !ctx.accounts.pouch.is_slot_spent(note.slot_index),
+        CarrierError::SlotAlreadySpent
+    );
+    require!(
+        note.amount <= ctx.accounts.pouch.available(),
+        CarrierError::InsufficientCommitted
+    );
+    require_keys_eq!(
+        ctx.accounts.recipient.owner,
+        note.to,
+        CarrierError::RecipientMismatch
+    );
+
+    pay_out_and_commit(
+        Payout {
+            token_program: &ctx.accounts.token_program,
+            vault: &ctx.accounts.vault,
+            recipient: &ctx.accounts.recipient,
+            settler_payout: &ctx.accounts.settler_payout,
+            mint: &ctx.accounts.mint,
+            pouch_account: ctx.accounts.pouch.to_account_info(),
+            relayer_accounts: ctx.remaining_accounts,
+        },
+        &mut ctx.accounts.pouch,
+        &note,
+        &relayers,
+        ctx.accounts.settler.key(),
+    )
+}
+
+#[derive(Accounts)]
+pub struct AbandonSettlement<'info> {
+    #[account(mut)]
+    pub settler: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [
+            DRAFT_SEED,
+            draft.pouch.as_ref(),
+            &[draft.note.slot_index],
+            &draft.note.epoch.to_le_bytes(),
+        ],
+        bump = draft.bump,
+        has_one = settler,
+        close = settler,
+    )]
+    pub draft: Account<'info, SettlementDraft>,
+}
+
+/// Give up on a draft and reclaim its rent.
+///
+/// Without this, a settler who starts a chain and cannot finish it — the note
+/// expires, a hop turns out to be unsigned — loses the rent and leaves an
+/// account that blocks any future attempt on that slot.
+pub fn abandon_settlement(_ctx: Context<AbandonSettlement>) -> Result<()> {
+    Ok(())
 }
