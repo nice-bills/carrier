@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Carrier",
+    "slug": "carrier",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "platforms": ["android"],
+    "android": {
+      "package": "xyz.carrier.mesh",
+      "permissions": [
+        "BLUETOOTH_ADVERTISE",
+        "BLUETOOTH_CONNECT",
+        "BLUETOOTH_SCAN",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "NEARBY_WIFI_DEVICES"
+      ]
+    },
+    "plugins": ["expo-secure-store"]
+  }
+}

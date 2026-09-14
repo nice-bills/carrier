@@ -8,8 +8,10 @@ _Last updated: 2026-09-14_
 | --- | --- | --- |
 | Program units | `cargo test --manifest-path programs/carrier/Cargo.toml --lib` | 5/5 |
 | Protocol codec | `npx vitest run --root packages/protocol` | 8/8 |
-| Mesh | `npx vitest run --root packages/mesh` | 14/14 |
-| Settlement (e2e, real validator) | `npx vitest run --root tests` | 6/6 |
+| Mesh | `npx vitest run --root packages/mesh` | 25/25 |
+| Settlement (e2e, real validator) | `npx vitest run --root tests` | 9/9 |
+
+**47 tests.**
 
 `./scripts/localnet.sh` does the whole loop: build, extract artifact, generate
 IDL, start validator, deploy, run settlement.
@@ -62,10 +64,15 @@ It is now 2 in both `state.rs` and `codec.ts`, and the ceiling test fails if
 that stops being true.
 
 Each hop costs ~293 bytes, dominated by signatures: 96 bytes each, two per hop,
-neither reducible. **Longer chains need a different design** — accumulate
-signature verification across several transactions into a PDA, then settle.
-That is the single highest-value piece of remaining protocol work, because two
-hops is a short mesh.
+neither reducible.
+
+**This is no longer the ceiling on chain length — only on the fast path.**
+`begin_settlement` / `extend_settlement` / `finalize_settlement` accumulate the
+same verification across several transactions into a draft account, so chains
+run to `MAX_CHAIN` (16), bounded by payout cost rather than signature bytes.
+A four-hop chain settling that way is covered by the test suite. The mesh builds
+up to `MAX_CHAIN`, so a six-hop chain settles by the slower route instead of
+being unredeemable.
 
 ## Open design question: faking handoffs
 
@@ -82,7 +89,9 @@ Researched, and it cannot be fixed at the radio layer:
   densely-clustered sybil regions; two phones is the smallest possible attack
   and is indistinguishable from an ordinary pair of friends.
 
-The defence has to be economic:
+Two cheaper attacks *are* closed on-chain: a key may appear at most once in a
+chain, and neither the sender nor the recipient can be paid as a carrier of
+their own payment. Beyond that the defence has to be economic:
 
 > Make the reward a function of **distinct counterparties with independent
 > settlement history**, not raw hop count.
@@ -92,7 +101,10 @@ independent history behind either key. If repeat encounters pay sharply less and
 meeting a history-less key is worth near zero, the attack earns nothing while
 still costing fees. The cheat is not detected; it is made not worth doing.
 Composes with attestations (SAS, Civic) later without day-one onboarding
-friction. **Not yet implemented** — required before anything rewards spreading.
+friction. `relay_fee_bps` already fixes the pot before the note leaves, so extra
+hops divide it rather than adding to it — inflating a chain dilutes your own
+share rather than minting a new one. `superspreaders()` ranks by *distinct*
+recipients for the same reason: a pocket of your own phones is a very small set.
 
 ## Toolchain traps (encoded in `scripts/localnet.sh`)
 
@@ -115,13 +127,20 @@ These cost most of a day. Do not rediscover them during the event.
 
 ## Next
 
-1. **Anti-sybil**: diminishing returns on repeat counterparties. Required before
-   any reward for spreading.
-2. **Expo + BLE client**: the airplane-mode demo. Needs a physical Android
-   device to verify; the mesh logic beneath it is already tested without radios.
-3. **Contagion surface**: same engine, proximity as the mechanic rather than the
-   workaround.
-4. **PDA accumulator** if chains longer than two hops matter.
+Everything previously listed here is done. What remains is the part that needs
+hardware and a room full of people:
+
+1. **Run the app on two Android phones.** `NearbyTransport` has never executed
+   on a device. Discovery timing, payload limits, permission flow, and what
+   happens when someone walks out of range mid-transfer are all unknown. Budget
+   a day, not an evening.
+2. **Rehearse the airplane-mode demo** until it is boring. Radio demos fail on
+   stage; the only defence is repetition.
+3. **Draw the spread map.** `buildSpread`, `reproductionNumber`,
+   `superspreaders` and `generations` turn settlement events into the picture —
+   the rendering is all that is missing.
+4. **Decide payments or contagion for the pitch.** Both run on this engine
+   unchanged; the difference is the story and the top screen.
 
 ## Positioning
 

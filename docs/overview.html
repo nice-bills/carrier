@@ -564,7 +564,7 @@
           One device&#8209;to&#8209;device handoff, co&#8209;signed by <em>both</em> phones. Not GPS —
           GPS is self&#8209;reported and spoofable with commodity hardware. Two independent
           keys attesting to the same handoff is far harder to fake. The chain of hops is
-          the transmission lineage. A chain runs to <em>two</em> hops — measured, not chosen: a third will not fit in one transaction.
+          the transmission lineage. Two hops fit in a single transaction — measured, not chosen — and longer chains settle by accumulating verification across several.
         </p>
       </div>
     </div>
@@ -650,14 +650,14 @@
 
     <div class="panel" style="padding: clamp(1.2rem, 3vw, 2rem);">
       <table>
-        <caption>33 tests green. Settlement verified against a running validator.</caption>
+        <caption>47 tests green. Settlement verified against a running validator.</caption>
         <thead>
           <tr><th scope="col">Component</th><th scope="col">What it does</th><th scope="col">State</th></tr>
         </thead>
         <tbody>
           <tr>
-            <td>state.rs</td>
-            <td>Pouch, Note, Hop — wire format, hashing, slot bitmap</td>
+            <td>programs/carrier</td>
+            <td>Pouches, notes, co&#8209;signed hops, slashing, multi&#8209;tx settlement</td>
             <td><span class="chip chip-done">5/5 tests</span></td>
           </tr>
           <tr>
@@ -667,23 +667,18 @@
           </tr>
           <tr>
             <td>@carrier/mesh</td>
-            <td>Propagation, co&#8209;signed handoffs, BLE frame reassembly</td>
-            <td><span class="chip chip-done">14/14 tests</span></td>
+            <td>Propagation, handoffs, framing, wire format, spread maths</td>
+            <td><span class="chip chip-done">25/25 tests</span></td>
           </tr>
           <tr>
             <td>settle.test.ts</td>
-            <td>End&#8209;to&#8209;end settlement against a live validator</td>
-            <td><span class="chip chip-done">6/6 tests</span></td>
-          </tr>
-          <tr>
-            <td>anti&#8209;sybil</td>
-            <td>Diminishing returns on repeat counterparties</td>
-            <td><span class="chip chip-open">Designed</span></td>
+            <td>Settlement against a live validator, including a four&#8209;hop chain</td>
+            <td><span class="chip chip-done">9/9 tests</span></td>
           </tr>
           <tr>
             <td>app/</td>
-            <td>Expo client and the Bluetooth radio itself</td>
-            <td><span class="chip chip-open">Not started</span></td>
+            <td>Android client over Nearby Connections</td>
+            <td><span class="chip chip-open">Untested on hardware</span></td>
           </tr>
         </tbody>
       </table>
