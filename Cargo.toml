@@ -4,8 +4,14 @@ resolver = "2"
 
 [profile.release]
 overflow-checks = true
-lto = "fat"
-codegen-units = 1
+# `cargo-build-sbf` always builds the release profile, so this profile is also
+# the one every iteration pays for. Fat LTO with a single codegen unit pushed a
+# clean build past forty minutes, which is not a feedback loop anyone can work
+# in during a three-day event. Thin LTO keeps the binary close in size for a
+# small fraction of the time. Switch back to `lto = "fat"` / `codegen-units = 1`
+# for the final mainnet deploy, where minutes cost nothing and bytes do.
+lto = "thin"
+codegen-units = 4
 
 [profile.release.build-override]
 opt-level = 3

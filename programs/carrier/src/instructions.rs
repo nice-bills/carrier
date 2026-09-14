@@ -187,7 +187,7 @@ pub struct SettleNote<'info> {
 pub fn settle_note<'info>(
     ctx: Context<'info, SettleNote<'info>>,
     note: Note,
-    hops: Vec<Hop>,
+    claims: Vec<HopClaim>,
 ) -> Result<()> {
     let clock = Clock::get()?;
 
@@ -219,28 +219,31 @@ pub fn settle_note<'info>(
     let verified = collect_verified_signatures(&ctx.accounts.instructions)?;
 
     // The sender authorised this exact note.
-    require_signed(&verified, &ctx.accounts.pouch.owner, &note.message())?;
+    require_signed(&verified, &ctx.accounts.pouch.owner, &note.signing_payload())?;
 
     // Each handoff was co-signed by both devices, which is what makes a hop a
     // proof of physical proximity rather than a claim.
     let note_hash = note.hash();
-    require!(hops.len() <= MAX_HOPS, CarrierError::TooManyHops);
+    require!(claims.len() <= MAX_HOPS, CarrierError::TooManyHops);
     require!(
-        ctx.remaining_accounts.len() == hops.len(),
+        ctx.remaining_accounts.len() == claims.len(),
         CarrierError::RelayerAccountsMismatch
     );
 
-    let mut expected_prev = ctx.accounts.pouch.owner;
-    for (i, hop) in hops.iter().enumerate() {
-        require!(hop.seq as usize == i, CarrierError::HopSequenceInvalid);
-        require!(hop.note_hash == note_hash, CarrierError::HopNoteMismatch);
-        require_keys_eq!(hop.prev, expected_prev, CarrierError::HopChainBroken);
+    // Rebuild each hop from its position rather than trusting transmitted
+    // values. A chain that disagrees with what was signed cannot be expressed:
+    // the reconstructed hop simply produces a different digest, and the
+    // signature check below fails.
+    let mut hops: Vec<Hop> = Vec::with_capacity(claims.len());
+    let mut prev = ctx.accounts.pouch.owner;
+    for (i, claim) in claims.iter().enumerate() {
+        let hop = claim.expand(note_hash, prev, i as u8);
+        let payload = hop.signing_payload();
+        require_signed(&verified, &hop.relayer, &payload)?;
+        require_signed(&verified, &hop.prev, &payload)?;
 
-        let message = hop.message();
-        require_signed(&verified, &hop.relayer, &message)?;
-        require_signed(&verified, &hop.prev, &message)?;
-
-        expected_prev = hop.relayer;
+        prev = hop.relayer;
+        hops.push(hop);
     }
 
     // --- payouts -----------------------------------------------------------
@@ -401,8 +404,8 @@ pub fn prove_double_spend(
     require_keys_eq!(note_a.pouch, ctx.accounts.pouch.key(), CarrierError::NotesNotConflicting);
 
     let verified = collect_verified_signatures(&ctx.accounts.instructions)?;
-    require_signed(&verified, &ctx.accounts.pouch.owner, &note_a.message())?;
-    require_signed(&verified, &ctx.accounts.pouch.owner, &note_b.message())?;
+    require_signed(&verified, &ctx.accounts.pouch.owner, &note_a.signing_payload())?;
+    require_signed(&verified, &ctx.accounts.pouch.owner, &note_b.signing_payload())?;
 
     let bond = ctx.accounts.pouch.bond;
     require!(bond > 0, CarrierError::NothingToSlash);

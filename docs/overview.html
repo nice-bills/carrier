@@ -1,0 +1,739 @@
+<title>Carrier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+  /* ── tokens ──────────────────────────────────────────────────────────
+     Dark-first by intent: the subject is connectivity loss. Light theme
+     swaps the roles consistently rather than inverting naively.         */
+  :root {
+    --ground:      #0E1316;
+    --surface:     #151C20;
+    --surface-2:   #1B2429;
+    --edge:        #27343A;
+    --edge-soft:   #1E2A2F;
+    --ink:         #E6EDEA;
+    --ink-muted:   #8DA09A;
+    --ink-faint:   #5F736D;
+
+    /* Semantic, not decorative: these are the two states a note can be in. */
+    --transit:     #E4913C;
+    --transit-dim: #7A4F1E;
+    --settled:     #3FBFA0;
+    --settled-dim: #1C5F51;
+    --breach:      #D8604A;
+
+    --measure: 66ch;
+    --gap:     clamp(1rem, 2.5vw, 1.75rem);
+
+    --step--1: clamp(0.78rem, 0.76rem + 0.12vw, 0.85rem);
+    --step-0:  clamp(1.02rem, 0.98rem + 0.2vw, 1.14rem);
+    --step-1:  clamp(1.25rem, 1.15rem + 0.45vw, 1.5rem);
+    --step-2:  clamp(1.6rem, 1.4rem + 0.9vw, 2.2rem);
+    --step-3:  clamp(2.3rem, 1.8rem + 2.2vw, 4rem);
+
+    color-scheme: dark;
+  }
+
+  :root[data-theme="light"] {
+    --ground:      #EDF0EE;
+    --surface:     #FFFFFF;
+    --surface-2:   #F4F7F4;
+    --edge:        #CBD5D0;
+    --edge-soft:   #DFE6E2;
+    --ink:         #12191C;
+    --ink-muted:   #53635E;
+    --ink-faint:   #7D8D87;
+
+    --transit:     #B2661A;
+    --transit-dim: #E8C79B;
+    --settled:     #14806A;
+    --settled-dim: #9FD6C7;
+    --breach:      #B33E29;
+
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --ground:      #EDF0EE;
+      --surface:     #FFFFFF;
+      --surface-2:   #F4F7F4;
+      --edge:        #CBD5D0;
+      --edge-soft:   #DFE6E2;
+      --ink:         #12191C;
+      --ink-muted:   #53635E;
+      --ink-faint:   #7D8D87;
+
+      --transit:     #B2661A;
+      --transit-dim: #E8C79B;
+      --settled:     #14806A;
+      --settled-dim: #9FD6C7;
+      --breach:      #B33E29;
+
+      color-scheme: light;
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Newsreader", Georgia, "Times New Roman", serif;
+    font-size: var(--step-0);
+    font-weight: 300;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    width: 100%;
+    max-width: 1180px;
+    margin-inline: auto;
+    padding-inline: clamp(1.1rem, 4vw, 3rem);
+  }
+
+  .col {
+    max-width: var(--measure);
+  }
+
+  h1, h2, h3 {
+    font-family: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-weight: 800;
+    line-height: 1.03;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  p { margin: 0; }
+
+  strong { font-weight: 400; color: var(--ink); background: linear-gradient(transparent 62%, var(--settled-dim) 62%); }
+
+  /* ── eyebrow labels ───────────────────────────────────────────────── */
+  .label {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: var(--step--1);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  /* ── header ───────────────────────────────────────────────────────── */
+  header {
+    padding-block: clamp(3.5rem, 9vw, 7rem) clamp(2rem, 4vw, 3rem);
+  }
+
+  .masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.9rem 1.4rem;
+    margin-bottom: 2.2rem;
+  }
+
+  h1 {
+    font-size: var(--step-3);
+    letter-spacing: -0.045em;
+  }
+
+  .thesis {
+    font-size: var(--step-1);
+    line-height: 1.36;
+    max-width: 34ch;
+    color: var(--ink);
+    font-weight: 300;
+  }
+
+  .thesis em {
+    font-style: italic;
+    color: var(--transit);
+  }
+
+  .standfirst {
+    margin-top: 1.5rem;
+    max-width: var(--measure);
+    color: var(--ink-muted);
+  }
+
+  /* ── the hero diagram ─────────────────────────────────────────────── */
+  figure {
+    margin: clamp(2.5rem, 6vw, 4.5rem) 0 0;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    overflow-x: auto;
+  }
+
+  .diagram-scroll { min-width: 760px; }
+
+  svg { display: block; width: 100%; height: auto; }
+
+  .node-ring   { fill: none; stroke: var(--edge); stroke-width: 1.5; }
+  .node-core   { fill: var(--ink-faint); }
+  .node-origin .node-core { fill: var(--transit); }
+  .node-origin .node-ring { stroke: var(--transit); }
+  .node-final  .node-core { fill: var(--settled); }
+  .node-final  .node-ring { stroke: var(--settled); }
+
+  .link-offline {
+    fill: none;
+    stroke: var(--transit);
+    stroke-width: 1.75;
+    stroke-dasharray: 5 6;
+    stroke-linecap: round;
+  }
+  .link-settled {
+    fill: none;
+    stroke: var(--settled);
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+
+  .zone-fill-off { fill: var(--transit); opacity: 0.055; }
+  .zone-fill-on  { fill: var(--settled); opacity: 0.07; }
+  .zone-edge     { fill: none; stroke: var(--edge-soft); stroke-width: 1; }
+
+  .svg-label {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    fill: var(--ink-faint);
+    text-transform: uppercase;
+  }
+  .svg-name {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-weight: 500;
+    fill: var(--ink);
+  }
+  .svg-zone {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+  }
+  .svg-zone.off { fill: var(--transit); }
+  .svg-zone.on  { fill: var(--settled); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    /* Motion answers one question — which way does value flow. Nothing else moves. */
+    .link-offline { animation: drift 1.9s linear infinite; }
+    @keyframes drift { to { stroke-dashoffset: -22; } }
+  }
+
+  figcaption {
+    margin-top: 0.9rem;
+    color: var(--ink-faint);
+    font-size: var(--step--1);
+    max-width: var(--measure);
+  }
+
+  /* ── sections ─────────────────────────────────────────────────────── */
+  section { padding-block: clamp(3rem, 7vw, 5.5rem); border-top: 1px solid var(--edge-soft); }
+  section:first-of-type { border-top: 0; }
+
+  .sec-head { display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 2.2rem; }
+  h2 { font-size: var(--step-2); }
+  .stack { display: flex; flex-direction: column; gap: 1.15rem; }
+
+  /* ── failure pair ─────────────────────────────────────────────────── */
+  .pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+    gap: var(--gap);
+    margin-top: 2rem;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    padding: clamp(1.3rem, 2.6vw, 1.9rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .card h3 {
+    font-size: var(--step-1);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+
+  .card p { color: var(--ink-muted); font-size: calc(var(--step-0) * 0.96); }
+
+  .verdict {
+    margin-top: 0.35rem;
+    padding-top: 0.85rem;
+    border-top: 1px dashed var(--edge);
+    color: var(--ink);
+    font-size: calc(var(--step-0) * 0.96);
+  }
+
+  .verdict .label { display: block; margin-bottom: 0.3rem; color: var(--settled); }
+
+  /* ── objects table ────────────────────────────────────────────────── */
+  .objects { display: flex; flex-direction: column; gap: 1px; background: var(--edge); border: 1px solid var(--edge); border-radius: 3px; overflow: hidden; }
+
+  .object {
+    background: var(--surface);
+    padding: clamp(1.2rem, 2.4vw, 1.7rem);
+    display: grid;
+    grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+    gap: 0.5rem clamp(1rem, 3vw, 2.5rem);
+    align-items: start;
+  }
+
+  @media (max-width: 640px) { .object { grid-template-columns: 1fr; } }
+
+  .object-name {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: calc(var(--step-0) * 0.95);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .object-where { display: block; margin-top: 0.3rem; font-size: var(--step--1); font-weight: 400; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+  .object p { color: var(--ink-muted); }
+  .object em { font-style: normal; color: var(--ink); }
+
+  /* ── sequence: genuinely ordered, so it gets numbers ──────────────── */
+  ol.sequence { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; counter-reset: step; }
+
+  ol.sequence li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 3.2rem minmax(0, 1fr);
+    gap: 0 1.3rem;
+    padding-block: 1.35rem;
+    border-top: 1px solid var(--edge-soft);
+    align-items: baseline;
+  }
+  ol.sequence li:first-child { border-top: 0; }
+
+  ol.sequence li::before {
+    content: counter(step, decimal-leading-zero);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--transit);
+  }
+  ol.sequence li:last-child::before { color: var(--settled); }
+  ol.sequence p { color: var(--ink-muted); }
+  ol.sequence b { font-weight: 400; color: var(--ink); }
+
+  /* ── honesty block ────────────────────────────────────────────────── */
+  .honesty { border-left: 2px solid var(--breach); padding-left: clamp(1.1rem, 3vw, 2rem); }
+
+  .triad { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: var(--gap); margin-top: 1.8rem; }
+  .triad h3 { font-size: calc(var(--step-0) * 1.05); font-weight: 600; font-family: "JetBrains Mono", ui-monospace, monospace; letter-spacing: 0.02em; }
+  .triad p { color: var(--ink-muted); font-size: calc(var(--step-0) * 0.94); margin-top: 0.5rem; }
+
+  /* ── status board ─────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: calc(var(--step-0) * 0.95); }
+  caption { text-align: left; margin-bottom: 1rem; color: var(--ink-faint); font-size: var(--step--1); }
+  th, td { text-align: left; padding: 0.8rem 1rem 0.8rem 0; border-bottom: 1px solid var(--edge-soft); vertical-align: top; }
+  th {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  td:first-child { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: calc(var(--step-0) * 0.88); color: var(--ink); padding-right: 1.5rem; }
+  td:last-child, th:last-child { padding-right: 0; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .chip {
+    display: inline-block;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .chip-done { color: var(--settled); background: var(--settled-dim); }
+  .chip-open { color: var(--transit); background: var(--transit-dim); }
+
+  :root[data-theme="light"] .chip-done,
+  :root[data-theme="light"] .chip-open { color: var(--surface); }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) .chip-done { background: var(--settled); color: #fff; }
+    :root:not([data-theme="dark"]) .chip-open { background: var(--transit); color: #fff; }
+  }
+  :root[data-theme="light"] .chip-done { background: var(--settled); }
+  :root[data-theme="light"] .chip-open { background: var(--transit); }
+
+  /* ── closing ──────────────────────────────────────────────────────── */
+  .closer { padding-block: clamp(3rem, 7vw, 5rem) clamp(4rem, 9vw, 7rem); border-top: 1px solid var(--edge-soft); }
+  .closer .big { font-family: "Bricolage Grotesque", sans-serif; font-weight: 600; font-size: var(--step-2); line-height: 1.18; letter-spacing: -0.02em; max-width: 26ch; }
+  .closer .big span { color: var(--transit); }
+
+  footer { padding-bottom: 3rem; color: var(--ink-faint); font-size: var(--step--1); font-family: "JetBrains Mono", ui-monospace, monospace; letter-spacing: 0.04em; }
+
+  a { color: var(--settled); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--transit); outline-offset: 3px; }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="masthead">
+      <h1>Carrier</h1>
+      <span class="label">Dev3pack Global Hackathon · 30 Oct – 1 Nov 2026</span>
+    </div>
+
+    <p class="thesis">
+      A payment network that moves money <em>without the internet</em>. Value travels
+      phone&#8209;to&#8209;phone, carried by strangers, and settles on Solana when
+      anyone in the chain finds signal.
+    </p>
+
+    <p class="standfirst">
+      You do not join Carrier by connecting to an RPC. You catch it from someone
+      standing near you. Everyone who carried a payment gets paid when it lands.
+    </p>
+
+    <figure>
+      <div class="panel">
+        <div class="diagram-scroll">
+          <svg viewBox="0 0 900 300" role="img" aria-labelledby="digram-title digram-desc">
+            <title id="digram-title">How one payment travels</title>
+            <desc id="digram-desc">A payment is signed offline by a sender, handed between three
+            strangers over Bluetooth with no connectivity, and settled on Solana when the last
+            carrier finds signal. The recipient and every carrier are paid at settlement.</desc>
+
+            <!-- zones -->
+            <rect class="zone-fill-off" x="24" y="56" width="580" height="176" rx="3"/>
+            <rect class="zone-edge"     x="24" y="56" width="580" height="176" rx="3"/>
+            <rect class="zone-fill-on"  x="628" y="56" width="248" height="176" rx="3"/>
+            <rect class="zone-edge"     x="628" y="56" width="248" height="176" rx="3"/>
+
+            <text class="svg-zone off" x="40" y="80">NO CONNECTIVITY</text>
+            <text class="svg-zone on"  x="644" y="80">SIGNAL RETURNS</text>
+
+            <!-- links -->
+            <path class="link-offline" d="M 128 152 C 168 108, 208 108, 248 152"/>
+            <path class="link-offline" d="M 288 152 C 328 108, 368 108, 408 152"/>
+            <path class="link-offline" d="M 448 152 C 488 108, 528 108, 568 152"/>
+            <path class="link-settled" d="M 608 152 L 712 152"/>
+            <path class="link-settled" d="M 752 152 L 836 152"/>
+
+            <!-- hop captions -->
+            <text class="svg-label" x="188" y="196" text-anchor="middle">hop 01</text>
+            <text class="svg-label" x="348" y="196" text-anchor="middle">hop 02</text>
+            <text class="svg-label" x="508" y="196" text-anchor="middle">hop 03</text>
+            <text class="svg-label" x="188" y="212" text-anchor="middle">co-signed</text>
+            <text class="svg-label" x="348" y="212" text-anchor="middle">co-signed</text>
+            <text class="svg-label" x="508" y="212" text-anchor="middle">co-signed</text>
+
+            <!-- nodes -->
+            <g class="node node-origin">
+              <circle class="node-ring" cx="88"  cy="152" r="19"/>
+              <circle class="node-core" cx="88"  cy="152" r="7"/>
+              <text class="svg-name"  x="88" y="112" text-anchor="middle">SENDER</text>
+              <text class="svg-label" x="88" y="245" text-anchor="middle">signs a note</text>
+            </g>
+            <g class="node">
+              <circle class="node-ring" cx="268" cy="152" r="19"/>
+              <circle class="node-core" cx="268" cy="152" r="7"/>
+              <text class="svg-name"  x="268" y="112" text-anchor="middle">STRANGER</text>
+              <text class="svg-label" x="268" y="245" text-anchor="middle">carries it</text>
+            </g>
+            <g class="node">
+              <circle class="node-ring" cx="428" cy="152" r="19"/>
+              <circle class="node-core" cx="428" cy="152" r="7"/>
+              <text class="svg-name"  x="428" y="112" text-anchor="middle">STRANGER</text>
+              <text class="svg-label" x="428" y="245" text-anchor="middle">carries it</text>
+            </g>
+            <g class="node">
+              <circle class="node-ring" cx="588" cy="152" r="19"/>
+              <circle class="node-core" cx="588" cy="152" r="7"/>
+              <text class="svg-name"  x="588" y="112" text-anchor="middle">STRANGER</text>
+              <text class="svg-label" x="588" y="245" text-anchor="middle">finds signal</text>
+            </g>
+            <g class="node node-final">
+              <circle class="node-ring" cx="732" cy="152" r="19"/>
+              <circle class="node-core" cx="732" cy="152" r="7"/>
+              <text class="svg-name"  x="732" y="112" text-anchor="middle">SOLANA</text>
+              <text class="svg-label" x="732" y="245" text-anchor="middle">settles</text>
+            </g>
+            <g class="node node-final">
+              <circle class="node-ring" cx="856" cy="152" r="19"/>
+              <circle class="node-core" cx="856" cy="152" r="7"/>
+              <text class="svg-name"  x="856" y="112" text-anchor="middle">PAID</text>
+              <text class="svg-label" x="856" y="245" text-anchor="middle">+ carriers</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <figcaption>
+        The recipient was never present, never online, and never known to the people
+        who carried the money. A note diffuses rather than routes.
+      </figcaption>
+    </figure>
+  </header>
+
+  <section>
+    <div class="sec-head col">
+      <span class="label">Why this doesn't already exist</span>
+      <h2>Offline payments have been tried and abandoned, repeatedly</h2>
+    </div>
+    <p class="col" style="color: var(--ink-muted);">
+      Two failures, every time. Carrier is a bet that both became solvable in the
+      last twelve months.
+    </p>
+
+    <div class="pair">
+      <div class="card">
+        <h3>Nobody relays for free</h3>
+        <p>
+          Carrying a stranger's data costs battery and earns nothing. So nobody does
+          it, so the mesh has no carriers, so it dies at one node. Every mesh payment
+          project has drowned here.
+        </p>
+        <p class="verdict">
+          <span class="label">What changed</span>
+          Carriers are paid out of the note itself at settlement. Forwarding a
+          stranger's payment is <strong>profitable</strong>. Per&#8209;hop receipts only
+          became affordable once compressed state made them cost roughly nothing.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Offline double&#8209;spend is unsolvable</h3>
+        <p>
+          Strictly, it is. A device with no connection cannot check whether money was
+          already spent. Most designs quietly pretend otherwise and lose trust the
+          first time someone checks.
+        </p>
+        <p class="verdict">
+          <span class="label">What we do instead</span>
+          We don't claim to have solved it. We <strong>bound</strong> the exposure to a
+          number committed onchain in advance, <strong>detect</strong> cheating with a
+          proof anyone can submit, and <strong>compensate</strong> the victim from a
+          slashable bond.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head col">
+      <span class="label">The pieces</span>
+      <h2>Three objects. One lives onchain, two live in people's pockets.</h2>
+    </div>
+
+    <div class="objects">
+      <div class="object">
+        <div class="object-name">Pouch<span class="object-where">onchain</span></div>
+        <p>
+          A pre&#8209;funded allowance committed in advance, like a cashier's cheque book
+          where the bank has already set the money aside. It carries a 256&#8209;bit map of
+          which cheque numbers have been cashed. <em>Committed minus settled is the
+          offline exposure ceiling</em> — chosen by the user, visible to anyone.
+        </p>
+      </div>
+
+      <div class="object">
+        <div class="object-name">Note<span class="object-where">in a pocket</span></div>
+        <p>
+          One offline payment, signed by the sender, consuming one slot. It never
+          touches the chain until it settles. <em>The bitmap is what makes this work</em> —
+          an obvious monotonic counter would permanently strand every note that arrives
+          out of order, which in a mesh is most of them.
+        </p>
+      </div>
+
+      <div class="object">
+        <div class="object-name">Hop<span class="object-where">in a pocket</span></div>
+        <p>
+          One device&#8209;to&#8209;device handoff, co&#8209;signed by <em>both</em> phones. Not GPS —
+          GPS is self&#8209;reported and spoofable with commodity hardware. Two independent
+          keys attesting to the same handoff is far harder to fake. The chain of hops is
+          the transmission lineage. A chain runs to <em>two</em> hops — measured, not chosen: a third will not fit in one transaction.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head col">
+      <span class="label">One payment, end to end</span>
+      <h2>What actually happens</h2>
+    </div>
+
+    <ol class="sequence col">
+      <li><p><b>The sender goes offline</b> and signs a note against an unused slot. No connection required, and none available.</p></li>
+      <li><p><b>They hand it to whoever is nearby</b> over Bluetooth. Both devices sign the handoff. That stranger now carries the payment.</p></li>
+      <li><p><b>It keeps moving.</b> Each new person met is another co-signed hop. The money travels by human movement, not by routing.</p></li>
+      <li><p><b>Someone finds signal</b> — possibly none of the people involved in the payment — and submits the whole accumulated bundle.</p></li>
+      <li><p><b>Everything settles at once.</b> The recipient is paid, every carrier in the chain takes a cut, and the lineage is written down.</p></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="sec-head col">
+      <span class="label">The demo</span>
+      <h2>Sixty seconds, no slides</h2>
+    </div>
+    <div class="col stack">
+      <p style="color: var(--ink-muted);">
+        Judges' phones in airplane mode. Send money across the room — there is no
+        internet in the building. One judge walks to another; the payment hops. Still
+        offline. The last one switches on wifi, and the entire chain settles at once,
+        the lineage blooming on screen.
+      </p>
+      <p style="color: var(--ink-muted);">
+        The submission rules cap demo videos at <strong>three minutes, strictly</strong>,
+        and require the product running rather than a pitch deck. This demo needs about
+        one, and it cannot be faked with a mockup — which is the point.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head col">
+      <span class="label">The hard part, stated plainly</span>
+      <h2>What a cheat can actually do</h2>
+    </div>
+
+    <div class="col honesty stack">
+      <p>
+        A sender with a rooted device can sign two notes against the same slot and hand
+        them to two different people. Both are valid. One settles; the other fails.
+        Anyone who asks deserves this answer rather than a hand&#8209;wave.
+      </p>
+    </div>
+
+    <div class="triad">
+      <div>
+        <h3 style="color: var(--settled);">Bounded</h3>
+        <p>Exposure can never exceed committed minus settled, across at most 256 notes per epoch. Both numbers are onchain and quotable before anything goes wrong.</p>
+      </div>
+      <div>
+        <h3 style="color: var(--settled);">Detected</h3>
+        <p>Two conflicting notes are a proof. The program verifies both signatures itself — no oracle, no trusted reporter, no appeal to an operator.</p>
+      </div>
+      <div>
+        <h3 style="color: var(--settled);">Compensated</h3>
+        <p>The bond is slashed. Whoever held the losing note is made whole from the cheat's own stake, and the person who brought the proof takes a cut.</p>
+      </div>
+    </div>
+
+    <p class="col" style="margin-top: 1.8rem; color: var(--ink-muted);">
+      On hardware with a secure element the slot map lives inside the enclave and the
+      signing key never leaves it, so forging the second note means defeating the
+      hardware rather than editing a file. That raises the cost of the attack. It does
+      not eliminate it, and we don't say it does.
+    </p>
+  </section>
+
+  <section>
+    <div class="sec-head col">
+      <span class="label">Repository state</span>
+      <h2>What's real today</h2>
+    </div>
+
+    <div class="panel" style="padding: clamp(1.2rem, 3vw, 2rem);">
+      <table>
+        <caption>33 tests green. Settlement verified against a running validator.</caption>
+        <thead>
+          <tr><th scope="col">Component</th><th scope="col">What it does</th><th scope="col">State</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>state.rs</td>
+            <td>Pouch, Note, Hop — wire format, hashing, slot bitmap</td>
+            <td><span class="chip chip-done">5/5 tests</span></td>
+          </tr>
+          <tr>
+            <td>@carrier/protocol</td>
+            <td>Shared codec — phones and chain agree byte&#8209;for&#8209;byte</td>
+            <td><span class="chip chip-done">8/8 tests</span></td>
+          </tr>
+          <tr>
+            <td>@carrier/mesh</td>
+            <td>Propagation, co&#8209;signed handoffs, BLE frame reassembly</td>
+            <td><span class="chip chip-done">14/14 tests</span></td>
+          </tr>
+          <tr>
+            <td>settle.test.ts</td>
+            <td>End&#8209;to&#8209;end settlement against a live validator</td>
+            <td><span class="chip chip-done">6/6 tests</span></td>
+          </tr>
+          <tr>
+            <td>anti&#8209;sybil</td>
+            <td>Diminishing returns on repeat counterparties</td>
+            <td><span class="chip chip-open">Designed</span></td>
+          </tr>
+          <tr>
+            <td>app/</td>
+            <td>Expo client and the Bluetooth radio itself</td>
+            <td><span class="chip chip-open">Not started</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="col" style="margin-top: 1.6rem; color: var(--ink-muted);">
+      The end&#8209;to&#8209;end tests earned their keep: settlement did not fit in a Solana
+      transaction at all. Five signatures carrying their messages inline came to
+      1557 bytes against a 1232&#8209;byte limit, so a two&#8209;hop payment could never have
+      settled. Signing digests, sharing the blob both co&#8209;signers cover, dropping
+      data the program can derive, and moving account keys into a lookup table
+      brought it to <strong>1087</strong>. No unit test could have found that — none of
+      them build a transaction.
+    </p>
+  </section>
+
+  <section>
+    <div class="sec-head col">
+      <span class="label">Why this one, here</span>
+      <h2>The field is not competing for this</h2>
+    </div>
+    <div class="col stack">
+      <p style="color: var(--ink-muted);">
+        Last edition's thirteen finalists were dominated by agent infrastructure —
+        agent fund security took first, agent insurance took third, plus an agent
+        firewall, an agent API layer, and an agent payments SDK. That lane is crowded
+        and defended by teams with a four&#8209;month head start.
+      </p>
+      <p style="color: var(--ink-muted);">
+        Of roughly two dozen demo&#8209;day teams, <strong>not one built anything physical,
+        offline, or hardware&#8209;bound</strong>. Meanwhile an inheritance protocol with a
+        proof&#8209;of&#8209;life mechanism reached the finals out of Africa — evidence these
+        judges reward ideas with human stakes rather than another chart.
+      </p>
+      <p style="color: var(--ink-muted);">
+        And the build stations sit in Lagos, Enugu, Uyo, Lomé, Kampala, Lusaka,
+        Caracas. Connectivity is not a hypothetical there. It is Tuesday.
+      </p>
+    </div>
+  </section>
+
+  <div class="closer col">
+    <p class="big">
+      Every other project in the room assumes an RPC connection.
+      <span>Half the people it's built for don't reliably have one.</span>
+    </p>
+  </div>
+
+  <footer>
+    Carrier · MIT · open source is mandatory for this hackathon and correct for a payment primitive regardless
+  </footer>
+
+</div>

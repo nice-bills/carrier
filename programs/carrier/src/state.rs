@@ -5,9 +5,19 @@ use solana_sha256_hasher::hashv;
 /// notes a pouch can have outstanding while offline.
 pub const SLOTS_PER_EPOCH: u16 = 256;
 
-/// Longest transmission chain we will settle in one instruction. Bounds compute
-/// and keeps the ed25519 precompile instruction under the packet limit.
-pub const MAX_HOPS: usize = 8;
+/// Longest transmission chain one settlement transaction can verify.
+///
+/// Measured, not chosen — see the ceiling test in `tests/settle.test.ts`, which
+/// prints 794 bytes for one hop and 1087 for two against a 1232-byte limit. A
+/// third hop does not fit. The cost is dominated by signatures: 96 bytes each,
+/// two per hop, and neither number is reducible.
+///
+/// This must not be optimistic. The mesh extends a chain up to this length, so a
+/// value larger than settlement can verify means devices build bundles nobody
+/// can ever redeem, and the failure only surfaces when the money does not
+/// arrive. Longer chains need signature verification accumulated across several
+/// transactions into a PDA, which is a larger design than this.
+pub const MAX_HOPS: usize = 2;
 
 /// How long after an epoch starts a note from that epoch may remain settleable.
 ///
@@ -109,6 +119,17 @@ impl Note {
     pub fn hash(&self) -> [u8; 32] {
         hashv(&[&self.message()]).to_bytes()
     }
+
+    /// What the sender's device actually signed.
+    ///
+    /// The digest rather than the encoding: every signature the ed25519
+    /// precompile verifies carries its message inline, and a transaction is
+    /// capped at 1232 bytes. Signing full encodings put a two-hop settlement at
+    /// 1443 bytes — it simply would not fit. The domain prefix is inside the
+    /// hashed bytes, so separation survives.
+    pub fn signing_payload(&self) -> [u8; 32] {
+        self.hash()
+    }
 }
 
 /// One device-to-device handoff, co-signed by both parties. The chain of these
@@ -123,12 +144,44 @@ pub struct Hop {
     pub at: i64,
 }
 
+/// A hop as it travels in instruction data.
+///
+/// Only the two fields that cannot be derived. `note_hash`, `prev` and `seq` are
+/// all implied by the note and the position in the chain, so transmitting them
+/// wastes 65 bytes per hop against a 1232-byte transaction limit — and worse,
+/// makes it possible to send values that disagree with the chain, which the
+/// program then has to check for. Rebuilding them here means they cannot
+/// disagree.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct HopClaim {
+    pub relayer: Pubkey,
+    pub at: i64,
+}
+
+impl HopClaim {
+    /// Rebuild the hop that both devices actually signed.
+    pub fn expand(&self, note_hash: [u8; 32], prev: Pubkey, seq: u8) -> Hop {
+        Hop {
+            note_hash,
+            relayer: self.relayer,
+            prev,
+            seq,
+            at: self.at,
+        }
+    }
+}
+
 impl Hop {
     pub fn message(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(HOP_DOMAIN.len() + 96);
         buf.extend_from_slice(HOP_DOMAIN);
         self.serialize(&mut buf).expect("borsh write to Vec is infallible");
         buf
+    }
+
+    /// What both devices in the handoff signed. See `Note::signing_payload`.
+    pub fn signing_payload(&self) -> [u8; 32] {
+        hashv(&[&self.message()]).to_bytes()
     }
 }
 

@@ -12,7 +12,7 @@ pub mod instructions;
 pub mod state;
 
 use instructions::*;
-use state::{Hop, Note};
+use state::{HopClaim, Note};
 
 declare_id!("CJBPBb6WBPWptmpiW4Kdb7SeRC7Cmob5YAaBtKSMXBvt");
 
@@ -34,7 +34,7 @@ pub mod carrier {
     pub fn settle_note<'info>(
         ctx: Context<'info, SettleNote<'info>>,
         note: Note,
-        hops: Vec<Hop>,
+        hops: Vec<HopClaim>,
     ) -> Result<()> {
         instructions::settle_note(ctx, note, hops)
     }

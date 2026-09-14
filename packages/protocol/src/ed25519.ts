@@ -63,10 +63,21 @@ export function createEd25519Instruction(
   }
 
   const blobsStart = HEADER_LEN + entries.length * OFFSETS_LEN;
-  const blobsSize = entries.reduce(
-    (n, e) => n + PUBKEY_LEN + SIGNATURE_LEN + e.message.length,
-    0,
-  );
+
+  // Both devices in a handoff sign the identical hop digest, so the same message
+  // would otherwise be written into the instruction twice. The precompile lets
+  // several entries point at one message region, and at the transaction size
+  // limit those duplicate bytes are the difference between settling and not.
+  const messageKey = (m: Uint8Array) => m.join(",");
+  const uniqueMessages = new Map<string, Uint8Array>();
+  for (const entry of entries) {
+    const key = messageKey(entry.message);
+    if (!uniqueMessages.has(key)) uniqueMessages.set(key, entry.message);
+  }
+
+  const blobsSize =
+    entries.length * (PUBKEY_LEN + SIGNATURE_LEN) +
+    [...uniqueMessages.values()].reduce((n, m) => n + m.length, 0);
 
   const data = new Uint8Array(blobsStart + blobsSize);
   const view = new DataView(data.buffer);
@@ -74,18 +85,24 @@ export function createEd25519Instruction(
   data[0] = entries.length;
   data[1] = 0; // padding
 
+  // Messages first, each stored once, then the per-entry key/signature pairs.
+  const messageOffsets = new Map<string, number>();
   let blobOffset = blobsStart;
+  for (const [key, message] of uniqueMessages) {
+    messageOffsets.set(key, blobOffset);
+    data.set(message, blobOffset);
+    blobOffset += message.length;
+  }
 
   entries.forEach((entry, i) => {
     const publicKeyOffset = blobOffset;
     const signatureOffset = publicKeyOffset + PUBKEY_LEN;
-    const messageOffset = signatureOffset + SIGNATURE_LEN;
+    const messageOffset = messageOffsets.get(messageKey(entry.message))!;
 
     data.set(entry.publicKey.toBytes(), publicKeyOffset);
     data.set(entry.signature, signatureOffset);
-    data.set(entry.message, messageOffset);
 
-    blobOffset = messageOffset + entry.message.length;
+    blobOffset = signatureOffset + SIGNATURE_LEN;
 
     let cursor = HEADER_LEN + i * OFFSETS_LEN;
     const putU16 = (value: number) => {

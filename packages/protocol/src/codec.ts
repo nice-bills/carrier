@@ -16,8 +16,13 @@ export const HOP_DOMAIN = new TextEncoder().encode("carrier:hop:v1");
 
 /** Note slots available per pouch epoch. Mirrors SLOTS_PER_EPOCH in state.rs. */
 export const SLOTS_PER_EPOCH = 256;
-/** Longest transmission chain settleable in one instruction. Mirrors MAX_HOPS. */
-export const MAX_HOPS = 8;
+/**
+ * Longest transmission chain settleable in one transaction. Mirrors MAX_HOPS in
+ * state.rs, where the measurement behind the number is recorded. Raising it
+ * without raising what settlement can verify makes the mesh build unredeemable
+ * bundles.
+ */
+export const MAX_HOPS = 2;
 
 export interface Note {
   pouch: PublicKey;
@@ -107,6 +112,19 @@ export function hashNote(note: Note): Uint8Array {
   return sha256(encodeNote(note));
 }
 
+/**
+ * What a device actually signs for a note.
+ *
+ * The hash, not the encoding. Solana caps a transaction at 1232 bytes and every
+ * signature the precompile checks has to carry its message inline — a two-hop
+ * settlement signing full encodings came to 1443 bytes and would not fit. The
+ * encodings are domain-separated before hashing, so signing the digest keeps the
+ * separation while costing 32 bytes instead of 102 or 119.
+ */
+export function noteSigningPayload(note: Note): Uint8Array {
+  return hashNote(note);
+}
+
 /** Exact bytes both devices sign for a handoff. */
 export function encodeHop(hop: Hop): Uint8Array {
   if (hop.noteHash.length !== 32) {
@@ -120,4 +138,13 @@ export function encodeHop(hop: Hop): Uint8Array {
     .u8(hop.seq)
     .i64(hop.at)
     .finish();
+}
+
+export function hashHop(hop: Hop): Uint8Array {
+  return sha256(encodeHop(hop));
+}
+
+/** What both devices sign for a handoff. See `noteSigningPayload`. */
+export function hopSigningPayload(hop: Hop): Uint8Array {
+  return hashHop(hop);
 }

@@ -6,6 +6,9 @@ export {
   encodeNote,
   encodeHop,
   hashNote,
+  hashHop,
+  noteSigningPayload,
+  hopSigningPayload,
   type Note,
   type Hop,
 } from "./codec.js";
