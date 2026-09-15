@@ -1,0 +1,472 @@
+<title>Pocket Epidemic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+  /* A night market, not a bank. Warm near-black — brown-biased, never grey —
+     with signal colours that read across a crowded room. Committed single
+     world; every colour painted so it holds on any host ground. */
+  :root {
+    --ground:  #150F0E;
+    --raise:   #201716;
+    --edge:    rgba(245,237,228,0.10);
+    --cream:   #F7F0E8;
+    --dim:     #9A8A81;
+    --faint:   #6B5D57;
+
+    --hot:     #FF6B35;   /* carrying */
+    --acid:    #C9F24E;   /* the strain itself */
+    --pink:    #FF2E88;   /* someone you've met */
+
+    --display: "Syne", "Helvetica Neue", Arial, sans-serif;
+    --ui: "Instrument Sans", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--ground);
+    color: var(--cream);
+    font-family: var(--ui);
+    display: grid;
+    place-items: start center;
+  }
+
+  .screen {
+    width: min(430px, 100%);
+    min-height: 100vh;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  /* Light bleeding up from what you're carrying. */
+  .glow {
+    position: absolute;
+    left: 50%; top: 30%;
+    width: 150%; aspect-ratio: 1;
+    translate: -50% -50%;
+    background: radial-gradient(circle, rgba(255,107,53,0.30), transparent 62%);
+    filter: blur(20px);
+    z-index: -2;
+    opacity: 0;
+    transition: opacity 700ms ease;
+    pointer-events: none;
+  }
+  .screen.loaded .glow { opacity: 1; }
+
+  /* Grain. Without it a flat dark ground looks like a wireframe. */
+  .grain {
+    position: absolute; inset: 0;
+    z-index: -1;
+    opacity: 0.30;
+    pointer-events: none;
+    mix-blend-mode: overlay;
+  }
+
+  /* ── status ─────────────────────────────────────────────────────────── */
+  .top { padding: 26px 24px 0; }
+  .status {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .status .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 12px currentColor;
+  }
+  .toward {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--faint);
+    letter-spacing: 0.04em;
+    margin-top: 7px;
+  }
+
+  /* ── the specimen ───────────────────────────────────────────────────── */
+  .hold { flex: 1; display: grid; place-items: center; padding: 18px 24px; min-height: 300px; position: relative; }
+
+  .specimen { width: 100%; text-align: center; }
+
+  .blobwrap { position: relative; display: grid; place-items: center; margin-bottom: 4px; }
+  .blob { width: min(260px, 72vw); aspect-ratio: 1; display: block; }
+
+  .figure {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .for { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--hot); }
+  .amount {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(64px, 20vw, 86px);
+    line-height: 0.92;
+    letter-spacing: -3.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .amount i { font-style: normal; font-size: 0.36em; letter-spacing: -1px; color: var(--dim); }
+
+  .chain { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 14px; }
+  .link { width: 7px; height: 7px; border-radius: 50%; background: var(--hot); box-shadow: 0 0 9px rgba(255,107,53,0.8); }
+  .link.off { background: rgba(247,240,232,0.16); box-shadow: none; }
+  .chain span { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-left: 5px; letter-spacing: 0.04em; }
+
+  .vacant { text-align: center; padding: 0 30px; }
+  .vacant h2 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 30px;
+    letter-spacing: -1.1px;
+    line-height: 1.08;
+    margin: 0 0 10px;
+  }
+  .vacant p { margin: 0; color: var(--dim); font-size: 14.5px; line-height: 1.55; }
+
+  /* ── people ─────────────────────────────────────────────────────────── */
+  .crowd { padding: 4px 0 2px; }
+  .crowd h3 {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 24px 13px;
+  }
+  .row { display: flex; gap: 14px; padding: 4px 24px 14px; overflow-x: auto; scrollbar-width: none; }
+  .row::-webkit-scrollbar { display: none; }
+
+  .who {
+    flex: none; width: 60px; border: 0; background: none; padding: 0;
+    cursor: pointer; font-family: inherit;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .head {
+    width: 52px; height: 52px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-family: var(--display); font-weight: 700; font-size: 19px;
+    color: var(--ground);
+    position: relative;
+    transition: transform 200ms cubic-bezier(0.2, 0.9, 0.2, 1), box-shadow 200ms ease;
+  }
+  .who[aria-pressed="true"] .head { transform: scale(1.1); box-shadow: 0 0 0 2.5px var(--cream); }
+  .head.carrying { box-shadow: 0 0 0 2px var(--hot), 0 0 20px rgba(255,107,53,0.55); }
+  .who[aria-pressed="true"] .head.carrying { box-shadow: 0 0 0 2.5px var(--cream), 0 0 22px rgba(255,107,53,0.6); }
+
+  .tick {
+    position: absolute; right: -3px; top: -3px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--pink); border: 2.5px solid var(--ground);
+    display: grid; place-items: center;
+  }
+  .tick svg { width: 8px; height: 8px; }
+
+  .who small { font-size: 11.5px; color: var(--dim); max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who[aria-pressed="true"] small { color: var(--cream); font-weight: 600; }
+
+  .alone { margin: 0 24px 16px; color: var(--faint); font-size: 13px; line-height: 1.5; }
+
+  /* ── action ─────────────────────────────────────────────────────────── */
+  .act { padding: 6px 24px 28px; display: flex; flex-direction: column; gap: 13px; }
+  .go {
+    width: 100%; border: 0; border-radius: 18px; padding: 20px;
+    font-family: var(--display); font-weight: 800; font-size: 16px;
+    letter-spacing: -0.2px; color: var(--ground); background: var(--acid);
+    cursor: pointer;
+    transition: transform 130ms cubic-bezier(0.2, 0.9, 0.2, 1), background 200ms ease;
+  }
+  .go:active { transform: scale(0.974); }
+  .go.take { background: var(--hot); color: var(--cream); }
+  .go:disabled { background: rgba(247,240,232,0.07); color: var(--faint); cursor: default; }
+
+  .tally { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10.5px; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; }
+  .tally b { color: var(--cream); font-weight: 500; }
+
+  /* ── moment ─────────────────────────────────────────────────────────── */
+  .flash {
+    position: absolute; inset: 0; z-index: 5;
+    display: grid; place-items: center;
+    pointer-events: none; opacity: 0;
+    transition: opacity 160ms ease;
+  }
+  .flash.show { opacity: 1; }
+  .flash b {
+    font-family: var(--display); font-weight: 800;
+    font-size: 34px; letter-spacing: -1.4px;
+    transform: scale(0.9) rotate(-3deg);
+    transition: transform 380ms cubic-bezier(0.2, 1.35, 0.35, 1);
+  }
+  .flash.show b { transform: scale(1) rotate(-3deg); }
+  .flash.took b { color: var(--hot); }
+  .flash.gave b { color: var(--acid); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .glow, .head, .go, .flash, .flash b { transition-duration: 1ms !important; }
+  }
+</style>
+
+<div class="screen" id="screen">
+  <div class="glow" id="glow"></div>
+  <svg class="grain" aria-hidden="true">
+    <filter id="g"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3"/></filter>
+    <rect width="100%" height="100%" filter="url(#g)"/>
+  </svg>
+
+  <div class="top">
+    <div class="status" id="status"><span class="dot"></span><span id="rank">Dormant</span></div>
+    <div class="toward" id="toward">MEET 1 PERSON</div>
+  </div>
+
+  <div class="hold" id="hold"></div>
+
+  <div class="crowd">
+    <h3 id="crowd-title">Nobody nearby</h3>
+    <div class="row" id="row"></div>
+    <p class="alone" id="alone">Carrier only works next to other people. Wait, or go where they are.</p>
+  </div>
+
+  <div class="act">
+    <button class="go" id="go" disabled>Nobody nearby</button>
+    <div class="tally">
+      <span><b id="t-hold">0</b> held</span>
+      <span><b id="t-met">0</b> met</span>
+      <span><b id="t-reach">0</b> reached</span>
+    </div>
+  </div>
+
+  <div class="flash" id="flash"><b id="flash-text"></b></div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const NAMES = ["Ama","Chidi","Zanele","Tunde","Ngozi","Kwame","Lerato","Emeka",
+                 "Sofía","Mateo","Valentina","Thiago","Ayesha","Rohan","Mei","Deniz"];
+  const SKINS = ["#FF6B35","#C9F24E","#FF2E88","#4ECDC4","#FFD23F","#A78BFA"];
+  const RANKS = [
+    { at: 0,  name: "Dormant",       colour: "#6B5D57" },
+    { at: 1,  name: "Exposed",       colour: "#9A8A81" },
+    { at: 3,  name: "Carrier",       colour: "#FF6B35" },
+    { at: 6,  name: "Vector",        colour: "#C9F24E" },
+    { at: 10, name: "Superspreader", colour: "#FF2E88" },
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];
+
+  let uid = 1;
+  const S = { people: [], held: [], met: new Set(), reach: 0, sel: null };
+
+  const newPerson = () => ({
+    id: uid++, name: pick(NAMES), skin: pick(SKINS),
+    carrying: Math.random() < 0.6, leaveAt: Date.now() + rand(9000, 19000),
+  });
+
+  const newNote = () => ({
+    id: uid++,
+    amount: Math.round(rand(2, 48) * 100) / 100,
+    to: pick(NAMES),
+    hops: Math.floor(rand(0, 4)),
+    seed: Math.random() * 1000,
+  });
+
+  /**
+   * An organic outline rather than a rectangle. What you carry is alive in the
+   * fiction, and a rounded card would say "receipt" instead.
+   */
+  function blobPath(seed, points = 7) {
+    const cx = 50, cy = 50, base = 36;
+    const pts = [];
+    for (let i = 0; i < points; i += 1) {
+      const a = (i / points) * Math.PI * 2;
+      const wobble = Math.sin(seed + i * 2.4) * 5.5 + Math.cos(seed * 1.7 + i) * 3;
+      const r = base + wobble;
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+    }
+    // Catmull-Rom through the points, so the outline closes smoothly.
+    let d = `M ${pts[0][0].toFixed(2)} ${pts[0][1].toFixed(2)}`;
+    for (let i = 0; i < points; i += 1) {
+      const p0 = pts[(i - 1 + points) % points];
+      const p1 = pts[i];
+      const p2 = pts[(i + 1) % points];
+      const p3 = pts[(i + 2) % points];
+      const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+      const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+      d += ` C ${c1[0].toFixed(2)} ${c1[1].toFixed(2)}, ${c2[0].toFixed(2)} ${c2[1].toFixed(2)}, ${p2[0].toFixed(2)} ${p2[1].toFixed(2)}`;
+    }
+    return d + " Z";
+  }
+
+  function flash(text, kind) {
+    const el = $("flash");
+    $("flash-text").textContent = text;
+    el.className = `flash show ${kind}`;
+    clearTimeout(flash.t);
+    flash.t = setTimeout(() => { el.className = "flash"; }, 880);
+  }
+
+  function drawHold() {
+    const hold = $("hold");
+    const note = S.held[0];
+    $("glow").style.opacity = note ? "1" : "0.25";
+
+    if (!note) {
+      hold.innerHTML = `
+        <div class="vacant">
+          <h2>Nothing on you</h2>
+          <p>Someone ringed in orange is carrying. Take it off their hands.</p>
+        </div>`;
+      return;
+    }
+
+    const whole = Math.floor(note.amount);
+    const cents = String(Math.round((note.amount % 1) * 100)).padStart(2, "0");
+    const links = Array.from({ length: 4 }, (_, i) =>
+      `<i class="link${i < note.hops ? "" : " off"}"></i>`).join("");
+
+    hold.innerHTML = `
+      <div class="specimen">
+        <div class="blobwrap">
+          <svg class="blob" viewBox="0 0 100 100" aria-hidden="true">
+            <defs>
+              <linearGradient id="skin" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#FF6B35" stop-opacity="0.30"/>
+                <stop offset="1" stop-color="#FF2E88" stop-opacity="0.12"/>
+              </linearGradient>
+            </defs>
+            <path d="${blobPath(note.seed)}" fill="url(#skin)"
+                  stroke="rgba(255,107,53,0.55)" stroke-width="0.7"/>
+          </svg>
+          <div class="figure">
+            <div class="for">for ${note.to}</div>
+            <div class="amount">${whole}<i>.${cents}</i></div>
+          </div>
+        </div>
+        <div class="chain">
+          ${links}
+          <span>${note.hops === 0 ? "straight from the sender"
+            : `${note.hops} ${note.hops === 1 ? "stranger" : "strangers"} carried this`}</span>
+        </div>
+      </div>`;
+  }
+
+  function drawCrowd() {
+    const row = $("row");
+    row.innerHTML = "";
+    $("alone").style.display = S.people.length ? "none" : "block";
+    $("crowd-title").textContent = S.people.length
+      ? `${S.people.length} within reach` : "Nobody nearby";
+
+    for (const p of S.people) {
+      const known = S.met.has(p.id);
+      const b = document.createElement("button");
+      b.className = "who";
+      b.setAttribute("aria-pressed", String(S.sel === p.id));
+      b.innerHTML = `
+        <span class="head${p.carrying ? " carrying" : ""}" style="background:${p.skin}">
+          ${p.name[0]}
+          ${known ? `<span class="tick"><svg viewBox="0 0 10 10" fill="none" stroke="#150F0E"
+            stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 5.2 4 7.6 8.5 2.6"/></svg></span>` : ""}
+        </span>
+        <small>${p.name}</small>`;
+      b.addEventListener("click", () => {
+        S.sel = S.sel === p.id ? null : p.id;
+        draw();
+      });
+      row.appendChild(b);
+    }
+  }
+
+  function drawChrome() {
+    const n = S.met.size;
+    let rank = RANKS[0];
+    for (const r of RANKS) if (n >= r.at) rank = r;
+    const next = RANKS.find((r) => r.at > n);
+
+    $("rank").textContent = rank.name;
+    $("status").style.color = rank.colour;
+    $("toward").textContent = next
+      ? `${next.at - n} MORE TO ${next.name.toUpperCase()}`
+      : "NOTHING LEFT TO REACH";
+
+    $("t-hold").textContent = S.held.length;
+    $("t-met").textContent = S.met.size;
+    $("t-reach").textContent = S.reach;
+
+    const go = $("go");
+    const p = S.people.find((x) => x.id === S.sel);
+    if (!p) {
+      go.disabled = true; go.className = "go";
+      go.textContent = S.people.length ? "Pick someone" : "Nobody nearby";
+    } else if (S.held.length) {
+      go.disabled = false; go.className = "go";
+      go.textContent = `Hand it to ${p.name}`;
+    } else if (p.carrying) {
+      go.disabled = false; go.className = "go take";
+      go.textContent = `Take ${p.name}'s`;
+    } else {
+      go.disabled = false; go.className = "go";
+      go.textContent = `Say hello to ${p.name}`;
+    }
+  }
+
+  function draw() { drawHold(); drawCrowd(); drawChrome(); }
+
+  $("go").addEventListener("click", () => {
+    const p = S.people.find((x) => x.id === S.sel);
+    if (!p) return;
+    const isNew = !S.met.has(p.id);
+    S.met.add(p.id);
+
+    if (S.held.length) {
+      S.held.shift();
+      S.reach += 1;
+      p.carrying = true;
+      flash(isNew ? `${p.name} has it` : "handed on", "gave");
+    } else if (p.carrying) {
+      p.carrying = false;
+      S.held.unshift(newNote());
+      flash("caught one", "took");
+    } else {
+      flash(isNew ? "met" : "already met", "gave");
+    }
+
+    p.leaveAt = Date.now() + rand(2500, 5000);
+    S.sel = null;
+    draw();
+  });
+
+  setInterval(() => {
+    const now = Date.now();
+    const before = S.people.length;
+    S.people = S.people.filter((p) => p.leaveAt > now);
+    if (S.people.length < 5 && Math.random() < 0.55) S.people.push(newPerson());
+    if (S.people.length !== before) {
+      if (S.sel && !S.people.some((p) => p.id === S.sel)) S.sel = null;
+      draw();
+    }
+  }, reduced ? 3200 : 1900);
+
+  S.people.push(newPerson(), newPerson());
+  draw();
+  requestAnimationFrame(() => $("screen").classList.add("loaded"));
+})();
+</script>

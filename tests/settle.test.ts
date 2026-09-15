@@ -91,9 +91,21 @@ describe("carrier settlement", () => {
   let lookupTable: anchor.web3.AddressLookupTableAccount;
 
   beforeAll(async () => {
-    provider = anchor.AnchorProvider.env();
+    // Anchor's default commitment is `processed`, which is fine against a local
+    // validator and wrong against a real cluster: a blockhash fetched at that
+    // commitment can be newer than the node asked to simulate against it, and
+    // the whole run dies on "Blockhash not found" before a single test runs.
+    // `confirmed` costs a little latency and makes the suite survive devnet.
+    const env = anchor.AnchorProvider.env();
+    connection = new Connection(env.connection.rpcEndpoint, {
+      commitment: "confirmed",
+      confirmTransactionInitialTimeout: 90_000,
+    });
+    provider = new anchor.AnchorProvider(connection, env.wallet, {
+      commitment: "confirmed",
+      preflightCommitment: "confirmed",
+    });
     anchor.setProvider(provider);
-    connection = provider.connection;
     payer = (provider.wallet as anchor.Wallet).payer;
 
     // Anchor refuses to publish an IDL account on localnet, so read the one the

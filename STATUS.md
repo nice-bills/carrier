@@ -1,6 +1,6 @@
 # Where Carrier stands
 
-_Last updated: 2026-09-14_
+_Last updated: 2026-09-15_
 
 ## Everything passes
 
@@ -9,9 +9,29 @@ _Last updated: 2026-09-14_
 | Program units | `cargo test --manifest-path programs/carrier/Cargo.toml --lib` | 5/5 |
 | Protocol codec | `npx vitest run --root packages/protocol` | 8/8 |
 | Mesh | `npx vitest run --root packages/mesh` | 25/25 |
-| Settlement (e2e, real validator) | `npx vitest run --root tests` | 9/9 |
+| Game / scoring | `npx vitest run --root packages/game` | 17/17 |
+| Settlement (e2e, local validator) | `npx vitest run --root tests` | 9/9 |
+| **Settlement (e2e, devnet)** | `./scripts/devnet.sh` | **9/9** |
 
-**47 tests.**
+**64 tests.**
+
+## Live on devnet
+
+```
+CJBPBb6WBPWptmpiW4Kdb7SeRC7Cmob5YAaBtKSMXBvt
+https://explorer.solana.com/address/CJBPBb6WBPWptmpiW4Kdb7SeRC7Cmob5YAaBtKSMXBvt?cluster=devnet
+```
+
+The whole suite passes there, not just on a local validator: a note carried by
+two strangers settles, a four-hop chain settles by accumulation, the bond
+slashes on a double spend, and every rejection path rejects. That is the
+contract address the submission form asks for.
+
+One fix was needed to get there. Anchor's default commitment is `processed`,
+which is fine against a local validator and wrong against a real cluster — a
+blockhash fetched at that commitment can be newer than the node asked to
+simulate against it, and the run dies on `Blockhash not found` before a single
+test executes. The suite now builds its provider at `confirmed`.
 
 `./scripts/localnet.sh` does the whole loop: build, extract artifact, generate
 IDL, start validator, deploy, run settlement.
