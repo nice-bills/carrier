@@ -5,31 +5,40 @@
 
 <style>
   /*
-    Money passed hand to hand, and it should feel like a good day outside.
+    Money passed hand to hand, drawn the way a good children's book is drawn:
+    flat fills, one heavy outline, a hard shadow sitting directly under the
+    object. Nothing glossy, nothing gradient, nothing blurred.
 
-    Rules that keep it out of terminal territory: no monospace anywhere, no grid
-    lines, no hairline rules, nothing square. One rounded face at four weights,
-    a mint sky with soft clouds, and glossy toy-like objects that behave like
-    physical things you could pick up.
+    Every one of those was a tell. The gloss-and-gradient sphere in particular
+    is the single most machine-generated object a layout can contain, and the
+    pastel gradient sky behind it was the second. Both are gone.
+
+    Rules held throughout:
+      no monospace, no grid lines, no hairline rules  (that is the terminal look)
+      no pure #000 or #fff                            (both read as untouched)
+      one accent per meaning, never decoration
+      asymmetry over centred stacks
+      one rounded face at four weights
 
     Motion earns its place or it is cut:
-      pop      something arrived in your hands
-      toss     something left them
-      drift    clouds, so the sky is not a dead colour field
-      squish   your tap landed
-    Springs throughout. Nothing eases linearly, because nothing physical does.
+      pop     something arrived in your hands
+      bob     it is sitting with you, alive, waiting
+      slip    the street reported something just now
+      squish  your tap landed
+    Springs throughout, since nothing physical eases linearly. The whole thing
+    collapses under prefers-reduced-motion.
   */
   :root {
-    --sky:     #A8E6CF;
-    --sky-top: #C6F0E0;
-    --ink:     #123527;
-    --soft:    #4E7A68;
-    --cloud:   #FFFFFF;
+    --sky:     #FBFBF9;
+    --sky-top: #FBFBF9;
+    --ink:     #3C3C3C;
+    --soft:    #7A7A7A;
+    --card:    #FFFFFF;
 
     --coral:   #FF5A5F;
     --sun:     #FFC93C;
     --grape:   #6C4AE0;
-    --deep:    #0F8A6A;
+    --deep:    #58CC02;
 
     --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
     --glide: cubic-bezier(0.22, 1, 0.36, 1);
@@ -53,38 +62,13 @@
   .screen {
     width: min(412px, 100%);
     height: min(880px, calc(100vh - 24px));
-    background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky) 52%, #92DDC0 100%);
+    background: var(--sky);
     color: var(--ink);
     border-radius: 34px;
     overflow: hidden;
     position: relative;
     display: grid;
     grid-template-rows: auto 1fr auto;
-  }
-
-  /* ── weather ────────────────────────────────────────────────────────── */
-  .cloud {
-    position: absolute;
-    background: var(--cloud);
-    border-radius: 100px;
-    opacity: 0.85;
-    pointer-events: none;
-  }
-  .cloud::before, .cloud::after {
-    content: "";
-    position: absolute;
-    background: var(--cloud);
-    border-radius: 50%;
-  }
-  .c1 { width: 120px; height: 34px; top: 92px; left: -30px; animation: drift 34s linear infinite; }
-  .c1::before { width: 46px; height: 46px; top: -20px; left: 22px; }
-  .c1::after  { width: 32px; height: 32px; top: -13px; left: 62px; }
-  .c2 { width: 92px; height: 26px; top: 210px; right: -24px; opacity: 0.6; animation: drift 46s linear infinite reverse; }
-  .c2::before { width: 36px; height: 36px; top: -16px; left: 18px; }
-  .c2::after  { width: 26px; height: 26px; top: -10px; left: 48px; }
-  @keyframes drift {
-    from { transform: translateX(-40px); }
-    to   { transform: translateX(440px); }
   }
 
   /* ── top ────────────────────────────────────────────────────────────── */
@@ -96,12 +80,13 @@
   .wordmark { font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
   .badge {
     font-weight: 600; font-size: 12px;
-    padding: 7px 13px;
+    padding: 6px 13px;
     border-radius: 100px;
-    background: rgba(255,255,255,0.7);
+    background: var(--card);
+    border: 2px solid #E5E5E5;
     color: var(--soft);
   }
-  .badge.lit { background: var(--sun); color: var(--ink); }
+  .badge.lit { background: var(--sun); border-color: var(--ink); color: var(--ink); }
 
   /* ── the middle ─────────────────────────────────────────────────────── */
   .mid { position: relative; z-index: 2; overflow-y: auto; scrollbar-width: none; padding: 0 20px; }
@@ -110,32 +95,32 @@
   .cap { font-weight: 500; font-size: 13px; color: var(--soft); }
 
   /* the coin: a toy object, not a card */
-  .coinwrap { display: grid; place-items: center; padding: 14px 0 6px; }
+  .coinwrap {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 18px;
+    padding: 16px 0 4px;
+  }
   .coin {
-    width: 186px; height: 186px;
+    width: 132px; height: 132px;
     border-radius: 50%;
     display: grid; place-items: center;
     text-align: center;
-    background:
-      radial-gradient(circle at 34% 26%, rgba(255,255,255,0.95), rgba(255,255,255,0) 42%),
-      linear-gradient(160deg, var(--sun) 6%, var(--coral) 92%);
-    box-shadow:
-      inset 0 -9px 18px rgba(155, 55, 40, 0.28),
-      inset 0 7px 12px rgba(255,255,255,0.55),
-      0 16px 0 rgba(18, 53, 39, 0.10),
-      0 26px 40px rgba(18, 53, 39, 0.22);
+    background: var(--sun);
+    border: 4px solid var(--ink);
+    box-shadow: 0 8px 0 var(--ink);
   }
   .coin .num {
-    font-weight: 700;
-    font-size: 47px;
+    font-weight: 600;
+    font-size: 33px;
     line-height: 1;
     letter-spacing: -0.035em;
-    color: #fff;
-    text-shadow: 0 2px 0 rgba(160, 60, 45, 0.35);
+    color: var(--ink);
     font-variant-numeric: tabular-nums;
   }
   .coin .num small { font-size: 0.46em; font-weight: 600; }
-  .coin .tick { font-weight: 500; font-size: 11.5px; color: rgba(255,255,255,0.9); margin-top: 7px; letter-spacing: 0.01em; }
+  .coin .tick { font-weight: 500; font-size: 10px; color: var(--ink); opacity: 0.6; margin-top: 4px; }
 
   @keyframes pop {
     0%   { transform: scale(0.42) rotate(-16deg); opacity: 0; }
@@ -150,38 +135,48 @@
   .coin.rest { animation: bob 4.6s ease-in-out infinite; }
 
   /* the route: little beads, the one thing only Carrier can show */
-  .route { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; padding: 12px 0 2px; }
+  .route {
+    display: flex; align-items: center; gap: 5px;
+    padding: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .route::-webkit-scrollbar { display: none; }
+  .route > * { flex: none; }
+  .facts { display: grid; gap: 9px; }
+  .facts .head { font-weight: 600; font-size: 13px; color: var(--soft); }
   .bead {
     font-weight: 600; font-size: 12px;
-    padding: 6px 12px;
+    padding: 5px 12px;
     border-radius: 100px;
-    background: rgba(255,255,255,0.72);
+    background: var(--card);
+    border: 2px solid #E5E5E5;
     color: var(--soft);
   }
   .bead.me { background: var(--ink); color: #fff; }
   .bead.dest { background: var(--coral); color: #fff; }
   .hop { color: rgba(18,53,39,0.32); font-size: 13px; font-weight: 600; }
 
-  .nothing { text-align: center; padding: 26px 8px 8px; }
+  .nothing { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 18px; padding: 20px 0 6px; }
   .nothing .face {
-    width: 118px; height: 118px; margin: 0 auto 18px;
+    width: 110px; height: 110px;
     border-radius: 50%;
-    background:
-      radial-gradient(circle at 36% 28%, rgba(255,255,255,0.9), rgba(255,255,255,0) 46%),
-      linear-gradient(160deg, #BDEFDC, #8FD9BE);
-    box-shadow: inset 0 -8px 14px rgba(18,53,39,0.12), 0 10px 0 rgba(18,53,39,0.07);
+    background: #E9F7DC;
+    border: 4px solid var(--ink);
+    box-shadow: 0 8px 0 var(--ink);
     animation: bob 5.2s ease-in-out infinite;
   }
-  .nothing h2 { margin: 0 0 8px; font-weight: 700; font-size: 25px; letter-spacing: -0.02em; }
-  .nothing p { margin: 0 auto; font-weight: 400; font-size: 14px; line-height: 1.5; color: var(--soft); max-width: 27ch; }
+  .nothing h2 { margin: 0 0 6px; font-weight: 600; font-size: 21px; letter-spacing: -0.02em; }
+  .nothing p { margin: 0; font-weight: 400; font-size: 13.5px; line-height: 1.45; color: var(--soft); }
 
   /* ── the street ─────────────────────────────────────────────────────── */
   .street { padding: 20px 0 6px; }
   .street h3 { margin: 0 0 10px; font-weight: 600; font-size: 13px; color: var(--soft); }
   .note {
     display: flex; align-items: center; gap: 10px;
-    background: rgba(255,255,255,0.58);
-    border-radius: 18px;
+    background: var(--card);
+    border: 2px solid #E9E9E9;
+    border-radius: 16px;
     padding: 10px 13px;
     margin-bottom: 7px;
   }
@@ -212,7 +207,8 @@
     width: 54px; height: 54px; border-radius: 50%;
     display: grid; place-items: center;
     font-weight: 700; font-size: 20px; color: #fff;
-    box-shadow: inset 0 -6px 12px rgba(0,0,0,0.16), inset 0 5px 9px rgba(255,255,255,0.4), 0 7px 0 rgba(18,53,39,0.12);
+    border: 3px solid var(--ink);
+    box-shadow: 0 4px 0 var(--ink);
     transition: transform 220ms var(--spring);
   }
   .folk:active .av { transform: scale(0.9); }
@@ -240,22 +236,26 @@
     font-family: var(--face);
     font-weight: 600; font-size: 16.5px;
     color: #fff;
-    background: linear-gradient(170deg, #FF7A5C, var(--coral));
-    box-shadow: 0 6px 0 #C83C46, 0 14px 22px rgba(200,60,70,0.34);
+    background: var(--deep);
+    box-shadow: 0 5px 0 #46A302;
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
     transition: transform 130ms var(--spring), box-shadow 130ms var(--spring);
   }
-  .go:active { transform: translateY(5px); box-shadow: 0 1px 0 #C83C46, 0 5px 10px rgba(200,60,70,0.3); }
+  .go:active { transform: translateY(5px); box-shadow: 0 0 0 #46A302; }
   .go:disabled {
-    background: #FFFFFF; color: #2F5C4C;
-    box-shadow: 0 5px 0 rgba(18,53,39,0.12); cursor: default; transform: none;
+    background: var(--card); color: #AFAFAF;
+    border: 2px solid #E5E5E5; box-shadow: none; cursor: default; transform: none;
   }
   .go .val { font-weight: 700; }
 
-  .score { display: flex; justify-content: space-between; padding: 14px 6px 0; }
-  .score div { text-align: center; }
-  .score b { display: block; font-weight: 700; font-size: 19px; line-height: 1; font-variant-numeric: tabular-nums; }
-  .score span { font-weight: 500; font-size: 11px; color: var(--soft); }
+  .score {
+    padding: 13px 2px 0;
+    font-weight: 400;
+    font-size: 13px;
+    color: var(--soft);
+    line-height: 1.5;
+  }
+  .score b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 
   /* ── shout ──────────────────────────────────────────────────────────── */
   .shout {
@@ -277,9 +277,6 @@
 </style>
 
 <div class="screen">
-  <div class="cloud c1"></div>
-  <div class="cloud c2"></div>
-
   <div class="top">
     <span class="wordmark">Carrier</span>
     <span class="badge" id="badge">Dormant</span>
@@ -300,11 +297,7 @@
     <button class="go" id="go" disabled>
       <span id="go-text">Nobody nearby</span><span class="val" id="go-val"></span>
     </button>
-    <div class="score">
-      <div><b id="s-hold">0</b><span>In pocket</span></div>
-      <div><b id="s-met">0</b><span>People met</span></div>
-      <div><b id="s-reach">0</b><span>Passed on</span></div>
-    </div>
+    <p class="score" id="score"></p>
   </div>
 
   <div class="shout" id="shout"></div>
@@ -388,9 +381,9 @@
 
     if (!coin) {
       box.innerHTML =
-        '<div class="nothing"><div class="face"></div>' +
+        '<div class="nothing"><div class="face"></div><div>' +
         "<h2>Your hands are empty</h2>" +
-        "<p>Anyone with a glowing ring is holding something. Take it, and carry it until you meet someone new.</p></div>";
+        "<p>Anyone with a ring around them is holding something. Take it and carry it.</p></div></div>";
       return;
     }
 
@@ -406,8 +399,9 @@
     box.innerHTML =
       '<div class="coinwrap"><div class="coin' + entrance + '">' +
       '<div><div class="num">' + whole + "<small>." + cents + "</small></div>" +
-      '<div class="tick">USDC in your pocket</div></div></div></div>' +
-      '<div class="route">' + beads.join('<span class="hop">&rsaquo;</span>') + "</div>";
+      '<div class="tick">USDC</div></div></div>' +
+      '<div class="facts"><span class="head">On its way to ' + coin.to + '</span>' +
+      '<div class="route">' + beads.join('<span class="hop">&rsaquo;</span>') + "</div></div></div>";
 
     // After the arrival pop finishes, let it settle into the idle bob.
     if (!calm && entrance === " arrive") {
@@ -423,10 +417,11 @@
       .map((e) => {
         const cls = "note" + (e.fresh ? " just" : "");
         e.fresh = false;
+        const named = e.html.match(/<b>([^<]+)<\/b>/);
+        const actor = e.mine ? "You" : named ? named[1] : "";
         return '<div class="' + cls + '"><span class="dot" style="background:' +
-          (e.mine ? "#123527" : hueFor(e.html.replace(/<[^>]+>/g, "").trim())) + '">' +
-          (e.mine ? "You" : "").slice(0, 1) + "</span><p>" + e.html + "</p><time>" +
-          ago(Date.now() - e.at) + "</time></div>";
+          (e.mine ? "#3C3C3C" : actor ? hueFor(actor) : "#D9D9D9") + '">' + (actor ? actor[0] : "") +
+          "</span><p>" + e.html + "</p><time>" + ago(Date.now() - e.at) + "</time></div>";
       })
       .join("");
   }
@@ -483,9 +478,10 @@
     badge.textContent = rank.name;
     badge.className = "badge" + (n >= 3 ? " lit" : "");
 
-    $("s-hold").textContent = S.pocket.length;
-    $("s-met").textContent = S.met.size;
-    $("s-reach").textContent = S.passed;
+    const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
+    $("score").innerHTML =
+      "You have met <b>" + plural(S.met.size, "person", "people") +
+      "</b> and passed on <b>" + plural(S.passed, "payment", "payments") + "</b>.";
 
     const go = $("go");
     const f = S.folks.find((x) => x.id === S.sel);
