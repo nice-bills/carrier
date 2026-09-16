@@ -1,50 +1,41 @@
 <title>Pocket Epidemic</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
 
 <style>
   /*
-    Money passed hand to hand, drawn the way a good children's book is drawn:
-    flat fills, one heavy outline, a hard shadow sitting directly under the
-    object. Nothing glossy, nothing gradient, nothing blurred.
+    Liquid Glass, built the way Apple describes it: three layers, not one blur.
 
-    Every one of those was a tell. The gloss-and-gradient sphere in particular
-    is the single most machine-generated object a layout can contain, and the
-    pastel gradient sky behind it was the second. Both are gone.
+      illumination  a translucent fill that lets the backdrop through
+      highlight     a specular top edge and a brighter fresnel rim
+      shadow        real separation between the glass and what is under it
 
-    Rules held throughout:
-      no monospace, no grid lines, no hairline rules  (that is the terminal look)
-      no pure #000 or #fff                            (both read as untouched)
-      one accent per meaning, never decoration
-      asymmetry over centred stacks
-      one rounded face at four weights
+    Glass needs something real behind it. Not a decorative gradient field, which
+    is only ever a crutch and reads as generated: the app's own content scrolls
+    under the chrome and that is what the blur bends.
 
-    Motion earns its place or it is cut:
-      pop     something arrived in your hands
-      bob     it is sitting with you, alive, waiting
-      slip    the street reported something just now
-      squish  your tap landed
-    Springs throughout, since nothing physical eases linearly. The whole thing
-    collapses under prefers-reduced-motion.
+    So the split is strict. Chrome that floats over content is glass. Anything
+    holding text is solid, because text on translucency is the usual failure of
+    this style.
   */
   :root {
-    --sky:     #FBFBF9;
-    --sky-top: #FBFBF9;
-    --ink:     #3C3C3C;
-    --soft:    #7A7A7A;
-    --card:    #FFFFFF;
+    --ink:      #12131A;
+    --on-glass: #FFFFFF;
+    --muted:    rgba(255, 255, 255, 0.66);
+    --faint:    rgba(255, 255, 255, 0.4);
 
-    --coral:   #FF5A5F;
-    --sun:     #FFC93C;
-    --grape:   #6C4AE0;
-    --deep:    #58CC02;
+    --mint:   #3DDC97;
+    --coral:  #FF6B5A;
+    --gold:   #FFC845;
+    --violet: #8A7BFF;
+    --sky:    #4FC3F7;
 
-    --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-    --glide: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease:   cubic-bezier(0.32, 0.72, 0, 1);
+    --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
 
-    --face: "Fredoka", "SF Pro Rounded", -apple-system, sans-serif;
-    color-scheme: light;
+    --face: "Manrope", -apple-system, system-ui, sans-serif;
+    color-scheme: dark;
   }
 
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -52,255 +43,387 @@
   body {
     margin: 0;
     min-height: 100vh;
-    background: #0B1F18;
+    background: #08080C;
     font-family: var(--face);
+    color: var(--on-glass);
     display: grid;
     place-items: center;
     padding: 12px;
   }
 
-  .screen {
+  .device {
     width: min(412px, 100%);
     height: min(880px, calc(100vh - 24px));
-    background: var(--sky);
-    color: var(--ink);
-    border-radius: 34px;
+    border-radius: 40px;
     overflow: hidden;
     position: relative;
+    isolation: isolate;
+    background: #0E0F14;
+  }
+
+  /* ── the material ───────────────────────────────────────────────────── */
+  /* Solid surfaces: everything that holds content. Text on translucency is
+     the usual failure of this style. */
+  .solid {
+    position: relative;
+    background: #1A1C24;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  /* Glass: only chrome that floats over scrolling content, so the blur has
+     something real to refract. */
+  .glass {
+    position: relative;
+    background: rgba(26, 28, 36, 0.72);
+    backdrop-filter: blur(30px) saturate(170%);
+    -webkit-backdrop-filter: blur(30px) saturate(170%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+      0 12px 32px rgba(0, 0, 0, 0.3);
+  }
+  /* the specular sweep: a directional highlight, not an all-over sheen */
+  .glass::after {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    /* a thin specular edge, not an all-over sheen */
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
+    pointer-events: none;
+  }
+
+  /* ── screens ────────────────────────────────────────────────────────── */
+  .screen {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 74px; z-index: 1;
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity 320ms var(--ease), transform 320ms var(--ease);
   }
+  .screen.on { opacity: 1; pointer-events: auto; transform: none; }
 
-  /* ── top ────────────────────────────────────────────────────────────── */
-  .top {
-    position: relative; z-index: 2;
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 20px 20px 4px;
+  .bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 20px 12px;
   }
-  .wordmark { font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
-  .badge {
-    font-weight: 600; font-size: 12px;
-    padding: 6px 13px;
-    border-radius: 100px;
-    background: var(--card);
-    border: 2px solid #E5E5E5;
-    color: var(--soft);
-  }
-  .badge.lit { background: var(--sun); border-color: var(--ink); color: var(--ink); }
+  .title { font-size: 25px; font-weight: 800; letter-spacing: -0.03em; }
+  .sub { font-size: 13px; color: var(--muted); font-weight: 500; }
 
-  /* ── the middle ─────────────────────────────────────────────────────── */
-  .mid { position: relative; z-index: 2; overflow-y: auto; scrollbar-width: none; padding: 0 20px; }
-  .mid::-webkit-scrollbar { display: none; }
+  .body { overflow-y: auto; scrollbar-width: none; padding: 0 16px 14px; }
+  .body::-webkit-scrollbar { display: none; }
 
-  .cap { font-weight: 500; font-size: 13px; color: var(--soft); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 13px; border-radius: 999px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.01em;
+  }
+  .chip .led { width: 6px; height: 6px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 8px var(--mint); }
 
-  /* the coin: a toy object, not a card */
-  .coinwrap {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: 18px;
-    padding: 16px 0 4px;
+  /* ── the held value ─────────────────────────────────────────────────── */
+  .purse {
+    border-radius: 26px; padding: 20px; margin-bottom: 12px;
+    background: #5B4BE8;
+    border-color: rgba(255,255,255,0.14);
   }
-  .coin {
-    width: 132px; height: 132px;
-    border-radius: 50%;
-    display: grid; place-items: center;
-    text-align: center;
-    background: var(--sun);
-    border: 4px solid var(--ink);
-    box-shadow: 0 8px 0 var(--ink);
-  }
-  .coin .num {
-    font-weight: 600;
-    font-size: 33px;
-    line-height: 1;
-    letter-spacing: -0.035em;
-    color: var(--ink);
+  .purse .lab, .purse .hint { color: rgba(255,255,255,0.68); }
+  .purse .step { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.2); color: rgba(255,255,255,0.86); }
+  .purse .step.you { background: #fff; color: #2A1F7A; }
+  .purse .step.end { background: var(--gold); color: #3A2A00; }
+  .purse .arrow { color: rgba(255,255,255,0.45); }
+  .purse .lab { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .purse .fig {
+    font-size: 52px; font-weight: 800; letter-spacing: -0.045em;
+    line-height: 1.04; margin-top: 6px;
     font-variant-numeric: tabular-nums;
   }
-  .coin .num small { font-size: 0.46em; font-weight: 600; }
-  .coin .tick { font-weight: 500; font-size: 10px; color: var(--ink); opacity: 0.6; margin-top: 4px; }
+  .purse .fig small { font-size: 0.42em; font-weight: 700; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
 
-  @keyframes pop {
-    0%   { transform: scale(0.42) rotate(-16deg); opacity: 0; }
-    100% { transform: none; opacity: 1; }
+  .path { display: flex; align-items: center; gap: 5px; margin-top: 15px; overflow-x: auto; scrollbar-width: none; }
+  .path::-webkit-scrollbar { display: none; }
+  .path > * { flex: none; }
+  .step {
+    font-size: 11px; font-weight: 700;
+    padding: 5px 11px; border-radius: 999px;
+    background: rgba(255,255,255,0.13);
+    border: 1px solid rgba(255,255,255,0.14);
+    color: var(--muted);
   }
-  .coin.arrive { animation: pop 620ms var(--spring) both; }
+  .step.you { background: rgba(255,255,255,0.95); color: var(--ink); border-color: transparent; }
+  .step.end { background: var(--coral); color: #fff; border-color: transparent; }
+  .arrow { color: var(--faint); font-size: 12px; }
 
-  @keyframes bob {
-    0%, 100% { transform: translateY(0); }
-    50%      { transform: translateY(-7px); }
+  /* ── dragging the money onto someone ────────────────────────────────── */
+  .purse { touch-action: none; cursor: grab; }
+  .purse.lifted {
+    cursor: grabbing;
+    z-index: 5;
+    box-shadow: 0 24px 50px rgba(0,0,0,0.55);
+    transition: none;
   }
-  .coin.rest { animation: bob 4.6s ease-in-out infinite; }
-
-  /* the route: little beads, the one thing only Carrier can show */
-  .route {
-    display: flex; align-items: center; gap: 5px;
-    padding: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
+  .purse .hint {
+    font-size: 11.5px; font-weight: 600; color: var(--faint);
+    margin-top: 12px; letter-spacing: 0.02em;
   }
-  .route::-webkit-scrollbar { display: none; }
-  .route > * { flex: none; }
-  .facts { display: grid; gap: 9px; }
-  .facts .head { font-weight: 600; font-size: 13px; color: var(--soft); }
-  .bead {
-    font-weight: 600; font-size: 12px;
-    padding: 5px 12px;
-    border-radius: 100px;
-    background: var(--card);
-    border: 2px solid #E5E5E5;
-    color: var(--soft);
+  .soul.target .head { box-shadow: 0 0 0 3px var(--mint), 0 6px 18px rgba(0,0,0,0.4); }
+  .soul.target { background: rgba(61,220,151,0.18); }
+
+  .hollow {
+    border-radius: 26px; padding: 26px 20px; margin-bottom: 12px; text-align: left;
+    background: #17304A;
   }
-  .bead.me { background: var(--ink); color: #fff; }
-  .bead.dest { background: var(--coral); color: #fff; }
-  .hop { color: rgba(18,53,39,0.32); font-size: 13px; font-weight: 600; }
+  .hollow h3 { margin: 0 0 6px; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
+  .hollow p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
 
-  .nothing { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 18px; padding: 20px 0 6px; }
-  .nothing .face {
-    width: 110px; height: 110px;
-    border-radius: 50%;
-    background: #E9F7DC;
-    border: 4px solid var(--ink);
-    box-shadow: 0 8px 0 var(--ink);
-    animation: bob 5.2s ease-in-out infinite;
-  }
-  .nothing h2 { margin: 0 0 6px; font-weight: 600; font-size: 21px; letter-spacing: -0.02em; }
-  .nothing p { margin: 0; font-weight: 400; font-size: 13.5px; line-height: 1.45; color: var(--soft); }
+  /* ── people ─────────────────────────────────────────────────────────── */
+  .section { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; margin: 16px 4px 9px; }
 
-  /* ── the street ─────────────────────────────────────────────────────── */
-  .street { padding: 20px 0 6px; }
-  .street h3 { margin: 0 0 10px; font-weight: 600; font-size: 13px; color: var(--soft); }
-  .note {
-    display: flex; align-items: center; gap: 10px;
-    background: var(--card);
-    border: 2px solid #E9E9E9;
-    border-radius: 16px;
-    padding: 10px 13px;
-    margin-bottom: 7px;
-  }
-  .note .dot { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 12px; color: #fff; }
-  .note p { margin: 0; font-size: 13.5px; font-weight: 400; line-height: 1.35; color: var(--soft); }
-  .note p b { font-weight: 600; color: var(--ink); }
-  .note p u { text-decoration: none; font-weight: 600; color: var(--coral); }
-  .note time { margin-left: auto; font-size: 11.5px; color: rgba(78,122,104,0.72); white-space: nowrap; }
-
-  @keyframes slip { from { opacity: 0; transform: translateY(-8px) scale(0.97); } to { opacity: 1; transform: none; } }
-  .note.just { animation: slip 460ms var(--glide) both; }
-
-  /* ── the bottom ─────────────────────────────────────────────────────── */
-  .bottom { position: relative; z-index: 2; padding: 6px 20px 20px; }
-  .bottom h3 { margin: 0 0 10px; font-weight: 600; font-size: 13px; color: var(--soft); }
-
-  .folks { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; padding-bottom: 12px; }
-  .folks::-webkit-scrollbar { display: none; }
-
-  .folk {
-    flex: none; width: 74px;
-    border: 0; background: none; padding: 0; cursor: pointer;
+  .queue { display: flex; gap: 9px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+  .queue::-webkit-scrollbar { display: none; }
+  .soul {
+    flex: none; width: 84px;
+    border: 0; padding: 12px 8px 11px; cursor: pointer;
+    border-radius: 20px;
     font-family: inherit; color: inherit;
-    display: grid; justify-items: center; gap: 6px;
+    display: grid; justify-items: center; gap: 7px;
+    transition: transform 200ms var(--spring);
   }
-  .folk.enter { animation: pop 480ms var(--spring) both; }
-  .folk .av {
-    width: 54px; height: 54px; border-radius: 50%;
+  .soul:active { transform: scale(0.94); }
+  .soul[aria-pressed="true"] {
+    background: rgba(255,255,255,0.28);
+    box-shadow: inset 0 0 0 1.5px rgba(255,255,255,0.7);
+  }
+  .soul .head {
+    width: 44px; height: 44px; border-radius: 50%;
     display: grid; place-items: center;
-    font-weight: 700; font-size: 20px; color: #fff;
-    border: 3px solid var(--ink);
-    box-shadow: 0 4px 0 var(--ink);
-    transition: transform 220ms var(--spring);
+    font-weight: 800; font-size: 17px; color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 12px rgba(0,0,0,0.3);
   }
-  .folk:active .av { transform: scale(0.9); }
-  .folk[aria-pressed="true"] .av { transform: scale(1.12) translateY(-3px); }
-  .folk .who { font-weight: 600; font-size: 12.5px; max-width: 74px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .folk .has { font-weight: 500; font-size: 10.5px; color: var(--soft); }
-  .folk[aria-pressed="true"] .has { color: var(--ink); }
+  .soul .nm { font-size: 12px; font-weight: 700; max-width: 68px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .soul .st { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+  .soul.loaded .st { color: var(--gold); }
 
-  .ring { position: relative; }
-  .ring::after {
-    content: "";
-    position: absolute; inset: -5px;
-    border-radius: 50%;
-    border: 3px solid var(--sun);
-    animation: halo 2.2s ease-in-out infinite;
+  @keyframes halo {
+    0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 12px rgba(0,0,0,0.3), 0 0 0 0 rgba(255,200,69,0.5); }
+    50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 12px rgba(0,0,0,0.3), 0 0 0 7px rgba(255,200,69,0); }
   }
-  @keyframes halo { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.09); opacity: 0.45; } }
+  .soul.loaded .head { animation: halo 2.4s ease-out infinite; }
 
-  .noone { margin: 0 0 12px; font-size: 13.5px; line-height: 1.5; color: var(--soft); }
+  /* ── activity ───────────────────────────────────────────────────────── */
+  .line {
+    display: flex; align-items: center; gap: 11px;
+    border-radius: 18px; padding: 12px 14px; margin-bottom: 8px;
+  }
+  .line .who { width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 800; font-size: 12px; color: #fff; }
+  .line p { margin: 0; font-size: 13.5px; line-height: 1.35; color: var(--muted); font-weight: 500; }
+  .line p b { color: var(--on-glass); font-weight: 700; }
+  .line p i { font-style: normal; font-weight: 700; color: var(--gold); }
+  .line time { margin-left: auto; font-size: 11px; color: var(--faint); white-space: nowrap; font-weight: 600; }
+  @keyframes arrive { from { opacity: 0; transform: translateY(-9px); } to { opacity: 1; transform: none; } }
+  .line.new { animation: arrive 420ms var(--ease) both; }
 
-  .go {
+  /* ── actions ────────────────────────────────────────────────────────── */
+  .dock { padding: 0 16px 14px; display: grid; gap: 10px; }
+  .act {
     width: 100%; border: 0; cursor: pointer;
-    border-radius: 100px;
-    padding: 17px 22px;
-    font-family: var(--face);
-    font-weight: 600; font-size: 16.5px;
-    color: #fff;
-    background: var(--deep);
-    box-shadow: 0 5px 0 #46A302;
+    border-radius: 999px; padding: 17px 22px;
+    font-family: inherit; font-weight: 800; font-size: 16px; letter-spacing: -0.01em;
+    color: var(--ink);
+    background: rgba(255,255,255,0.95);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 8px 24px rgba(0,0,0,0.3);
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
-    transition: transform 130ms var(--spring), box-shadow 130ms var(--spring);
+    transition: transform 140ms var(--spring), opacity 160ms ease;
   }
-  .go:active { transform: translateY(5px); box-shadow: 0 0 0 #46A302; }
-  .go:disabled {
-    background: var(--card); color: #AFAFAF;
-    border: 2px solid #E5E5E5; box-shadow: none; cursor: default; transform: none;
-  }
-  .go .val { font-weight: 700; }
+  .act:active { transform: scale(0.975); }
+  .act:disabled { background: rgba(255,255,255,0.14); color: var(--faint); box-shadow: none; cursor: default; }
+  .act.go { background: var(--mint); color: #05231A; }
+  .act.ghost { background: rgba(255,255,255,0.12); color: var(--on-glass); box-shadow: inset 0 1px 0 rgba(255,255,255,0.25); }
 
-  .score {
-    padding: 13px 2px 0;
-    font-weight: 400;
-    font-size: 13px;
-    color: var(--soft);
-    line-height: 1.5;
+  /* ── tab bar ────────────────────────────────────────────────────────── */
+  .tabs {
+    position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 2;
+    border-radius: 999px; padding: 6px;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
   }
-  .score b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .tab {
+    border: 0; background: none; cursor: pointer;
+    font-family: inherit; font-weight: 700; font-size: 12.5px;
+    color: var(--muted);
+    padding: 11px 6px; border-radius: 999px;
+    transition: background 200ms var(--ease), color 200ms var(--ease);
+  }
+  .tab.on { background: rgba(255,255,255,0.9); color: var(--ink); }
 
-  /* ── shout ──────────────────────────────────────────────────────────── */
-  .shout {
-    position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 9;
-    background: var(--ink); color: #fff;
-    border-radius: 100px;
-    padding: 15px 22px;
-    font-weight: 600; font-size: 14.5px;
-    text-align: center;
-    transform: translateY(190%);
+  /* ── onboarding ─────────────────────────────────────────────────────── */
+  .intro { position: absolute; inset: 0; z-index: 3; display: grid; grid-template-rows: 1fr auto; }
+  .intro.gone { display: none; }
+  .slides { position: relative; overflow: hidden; }
+  .slide {
+    position: absolute; inset: 0;
+    display: grid; align-content: center; gap: 14px;
+    padding: 0 32px;
+    opacity: 0; transform: translateX(28px);
+    transition: opacity 400ms var(--ease), transform 400ms var(--ease);
+    pointer-events: none;
+  }
+  .slide.on { opacity: 1; transform: none; pointer-events: auto; }
+  .slide .badge {
+    width: 64px; height: 64px; border-radius: 22px;
+    display: grid; place-items: center;
+    margin-bottom: 4px;
+  }
+  /* Drawn marks rather than emoji: two hands, a signal, a key. Built from
+     borders so they inherit weight and need no icon font. */
+  .mark { display: block; position: relative; }
+  .m1 { width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--mint); }
+  .m1::after {
+    content: ""; position: absolute; left: 13px; top: 0;
+    width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--gold);
+  }
+  .m2 { width: 8px; height: 8px; border-radius: 50%; background: var(--sky); }
+  .m2::before, .m2::after {
+    content: ""; position: absolute; border-radius: 50%;
+    border: 3px solid var(--sky); opacity: 0.55;
+  }
+  .m2::before { inset: -9px; }
+  .m2::after  { inset: -19px; opacity: 0.25; }
+  .m3 { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--violet); }
+  .m3::after {
+    content: ""; position: absolute; left: 50%; top: 16px;
+    width: 3px; height: 17px; background: var(--violet); transform: translateX(-50%);
+    box-shadow: 5px 6px 0 -1px var(--violet), 5px 12px 0 -1px var(--violet);
+  }
+  .slide h2 { margin: 0; font-size: 31px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.08; }
+  .slide p { margin: 0; font-size: 15.5px; line-height: 1.55; color: var(--muted); font-weight: 500; }
+
+  .pips { display: flex; gap: 6px; justify-content: center; padding-bottom: 14px; }
+  .pip { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.28); transition: all 300ms var(--ease); }
+  .pip.on { width: 20px; border-radius: 999px; background: #fff; }
+
+  /* ── sheet ──────────────────────────────────────────────────────────── */
+  .scrim {
+    position: absolute; inset: 0; z-index: 4;
+    background: rgba(5, 6, 10, 0.5);
+    backdrop-filter: blur(3px);
+    opacity: 0; pointer-events: none;
+    transition: opacity 300ms var(--ease);
+  }
+  .scrim.on { opacity: 1; pointer-events: auto; }
+
+  .sheet {
+    position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 5;
+    border-radius: 32px; padding: 20px;
+    transform: translateY(130%);
+    transition: transform 460ms var(--ease);
+  }
+  .sheet.up { transform: none; }
+  .grab { width: 38px; height: 5px; border-radius: 999px; background: rgba(255,255,255,0.3); margin: 0 auto 16px; }
+  .sheet h3 { margin: 0 0 6px; font-size: 22px; font-weight: 800; letter-spacing: -0.025em; }
+  .sheet .note { margin: 0 0 18px; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+
+  .toast {
+    position: absolute; left: 16px; right: 16px; bottom: 98px; z-index: 6;
+    border-radius: 999px; padding: 14px 20px;
+    font-size: 14px; font-weight: 700; text-align: center;
+    transform: translateY(160%);
     transition: transform 420ms var(--spring);
-    box-shadow: 0 12px 26px rgba(18,53,39,0.3);
   }
-  .shout.up { transform: none; }
+  .toast.up { transform: none; }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition-duration: 1ms !important; }
   }
 </style>
 
-<div class="screen">
-  <div class="top">
-    <span class="wordmark">Carrier</span>
-    <span class="badge" id="badge">Dormant</span>
-  </div>
-
-  <div class="mid">
-    <div id="stage"></div>
-    <div class="street">
-      <h3>Happening around you</h3>
-      <div id="street"></div>
+<div class="device">
+  <!-- ── onboarding ── -->
+  <div class="intro" id="intro">
+    <div class="slides">
+      <div class="slide on" data-slide="0">
+        <div class="badge solid"><span class="mark m1"></span></div>
+        <h2>Money that travels by hand</h2>
+        <p>Carrier moves payments between phones that are near each other. No internet, no signal, no accounts. Just people.</p>
+      </div>
+      <div class="slide" data-slide="1">
+        <div class="badge solid"><span class="mark m2"></span></div>
+        <h2>It needs to see who is close</h2>
+        <p>Carrier uses Bluetooth and Wi-Fi Direct to find phones in the room. Nothing leaves your device until it settles.</p>
+      </div>
+      <div class="slide" data-slide="2">
+        <div class="badge solid"><span class="mark m3"></span></div>
+        <h2>This phone is your key</h2>
+        <p>Your key lives in this device's secure storage and signs every handoff. Nobody can carry your money without it.</p>
+      </div>
+    </div>
+    <div>
+      <div class="pips" id="pips"><span class="pip on"></span><span class="pip"></span><span class="pip"></span></div>
+      <div class="dock">
+        <button class="act go" id="intro-next">Continue</button>
+      </div>
     </div>
   </div>
 
-  <div class="bottom">
-    <h3 id="near-title">Nobody nearby</h3>
-    <div class="folks" id="folks"></div>
-    <p class="noone" id="noone">Carrier only works next to other people. Wait a moment, or go find them.</p>
-    <button class="go" id="go" disabled>
-      <span id="go-text">Nobody nearby</span><span class="val" id="go-val"></span>
-    </button>
-    <p class="score" id="score"></p>
+  <!-- ── home ── -->
+  <div class="screen" id="s-home">
+    <div class="bar">
+      <div>
+        <div class="title">Carrier</div>
+        <div class="sub" id="home-sub">Looking around you</div>
+      </div>
+      <span class="chip solid" id="rank"><span class="led"></span><span id="rank-name">Dormant</span></span>
+    </div>
+    <div class="body">
+      <div id="purse"></div>
+      <div class="section" id="near-head">Nobody nearby</div>
+      <div class="queue" id="queue"></div>
+      <p class="sub" id="nobody" style="padding: 8px 4px 0">Carrier needs another person in the room. Wait a moment, or go find them.</p>
+      <div class="section">Just happened</div>
+      <div id="peek"></div>
+    </div>
+    <div class="dock">
+      <button class="act" id="primary" disabled>Nobody nearby</button>
+    </div>
   </div>
 
-  <div class="shout" id="shout"></div>
+  <!-- ── activity ── -->
+  <div class="screen" id="s-feed">
+    <div class="bar">
+      <div>
+        <div class="title">Around you</div>
+        <div class="sub">What the mesh has been doing</div>
+      </div>
+    </div>
+    <div class="body" id="feed"></div>
+    <div class="dock"></div>
+  </div>
+
+  <!-- ── you ── -->
+  <div class="screen" id="s-you">
+    <div class="bar">
+      <div>
+        <div class="title">You</div>
+        <div class="sub" id="you-key">Loading</div>
+      </div>
+    </div>
+    <div class="body" id="you-body"></div>
+    <div class="dock"></div>
+  </div>
+
+  <div class="tabs glass" id="tabs" style="display:none">
+    <button class="tab on" data-tab="s-home">Carry</button>
+    <button class="tab" data-tab="s-feed">Around</button>
+    <button class="tab" data-tab="s-you">You</button>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet glass" id="sheet">
+    <div class="grab"></div>
+    <div id="sheet-body"></div>
+  </div>
+
+  <div class="toast glass" id="toast"></div>
 </div>
 
 <script>
@@ -309,7 +432,7 @@
 
   const NAMES = ["Ama","Chidi","Zanele","Tunde","Ngozi","Kwame","Lerato","Emeka",
                  "Sofia","Mateo","Valentina","Thiago","Ayesha","Rohan","Mei","Deniz"];
-  const HUES = ["#FF5A5F","#6C4AE0","#0F8A6A","#FFC93C","#E8582F","#2E86DE","#D64C9B","#3AAE6E"];
+  const HUES = ["#FF6B5A","#8A7BFF","#3DDC97","#FFC845","#4FC3F7","#FF8FCF","#5AD1B0","#FFA06B"];
   const RANKS = [
     { at: 0, name: "Dormant" }, { at: 1, name: "Exposed" },
     { at: 3, name: "Carrier" }, { at: 6, name: "Vector" },
@@ -321,36 +444,46 @@
   const rand = (a, b) => a + Math.random() * (b - a);
   const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];
   const cash = () => Math.round(rand(140, 9400)) / 100;
+  const hueFor = (n) => {
+    let h = 0;
+    for (let i = 0; i < n.length; i += 1) h = (h * 31 + n.charCodeAt(i)) >>> 0;
+    return HUES[h % HUES.length];
+  };
   const ago = (ms) => {
     const m = Math.floor(ms / 60000);
-    return m < 1 ? "just now" : m < 60 ? m + " min" : Math.floor(m / 60) + " hr";
+    return m < 1 ? "now" : m < 60 ? m + "m" : Math.floor(m / 60) + "h";
   };
-  const hueFor = (name) => HUES[name.charCodeAt(0) % HUES.length];
 
   let uid = 1;
-  const S = { folks: [], pocket: [], met: new Set(), passed: 0, sel: null, street: [], arrived: false };
+  const S = {
+    folks: [], pocket: [], met: new Set(), passed: 0, sel: null,
+    feed: [], slide: 0, landed: false, key: "",
+  };
+
+  // A fake but plausible device key, so "You" has something real to show.
+  const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  S.key = Array.from({ length: 44 }, () => pick(B58.split(""))).join("");
 
   function newFolk() {
     const taken = new Set(S.folks.map((f) => f.name));
     const free = NAMES.filter((n) => !taken.has(n));
     return {
-      id: uid++,
-      name: pick(free.length ? free : NAMES),
+      id: uid++, name: pick(free.length ? free : NAMES),
       holding: Math.random() < 0.55,
-      goesAt: Date.now() + rand(15000, 32000),
+      goesAt: Date.now() + rand(16000, 34000),
     };
   }
 
-  function newCoin(from) {
+  function newNote(from) {
     const hops = Math.floor(rand(0, 3));
     const route = Array.from({ length: hops }, () => pick(NAMES));
     if (from) route.push(from);
     return { id: uid++, amount: cash(), to: pick(NAMES), route };
   }
 
-  function tell(html, mine) {
-    S.street.unshift({ html, mine: !!mine, at: Date.now(), fresh: true });
-    if (S.street.length > 30) S.street.pop();
+  function log(html, mine) {
+    S.feed.unshift({ html, mine: !!mine, at: Date.now(), fresh: true });
+    if (S.feed.length > 40) S.feed.pop();
   }
 
   function chatter() {
@@ -359,174 +492,283 @@
     while (b === a) b = pick(NAMES);
     const v = cash().toFixed(2);
     return pick([
-      "<b>" + a + "</b> passed <u>" + v + "</u> to <b>" + b + "</b>",
-      "<u>" + v + "</u> made it home after " + Math.floor(rand(2, 6)) + " hands",
+      "<b>" + a + "</b> passed <i>" + v + "</i> to <b>" + b + "</b>",
+      "<i>" + v + "</i> settled after " + Math.floor(rand(2, 6)) + " hands",
       "<b>" + a + "</b> caught one from <b>" + b + "</b>",
-      "<u>" + v + "</u> crossed town with no signal at all",
+      "<i>" + v + "</i> crossed town with no signal",
       "<b>" + a + "</b> reached " + Math.floor(rand(2, 9)) + " people this week",
     ]);
   }
 
-  function shout(text) {
-    const el = $("shout");
+  function toast(text) {
+    const el = $("toast");
     el.textContent = text;
     el.classList.add("up");
-    clearTimeout(shout.t);
-    shout.t = setTimeout(() => el.classList.remove("up"), 1800);
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => el.classList.remove("up"), 1900);
   }
 
-  function drawStage() {
-    const coin = S.pocket[0];
-    const box = $("stage");
-
-    if (!coin) {
-      box.innerHTML =
-        '<div class="nothing"><div class="face"></div><div>' +
-        "<h2>Your hands are empty</h2>" +
-        "<p>Anyone with a ring around them is holding something. Take it and carry it.</p></div></div>";
+  // ── onboarding ──────────────────────────────────────────────────────
+  $("intro-next").addEventListener("click", () => {
+    if (S.slide < 2) {
+      S.slide += 1;
+      document.querySelectorAll(".slide").forEach((el, i) =>
+        el.classList.toggle("on", i === S.slide));
+      document.querySelectorAll(".pip").forEach((el, i) =>
+        el.classList.toggle("on", i === S.slide));
+      $("intro-next").textContent = S.slide === 2 ? "Start carrying" : "Continue";
       return;
     }
+    S.landed = true;
+    $("intro").classList.add("gone");
+    $("tabs").style.display = "grid";
+    show("s-home");
+    draw();
+  });
 
-    const whole = Math.floor(coin.amount);
-    const cents = String(Math.round((coin.amount % 1) * 100)).padStart(2, "0");
-    const beads = coin.route.map((n) => '<span class="bead">' + n + "</span>");
-    beads.push('<span class="bead me">You</span>');
-    beads.push('<span class="bead dest">' + coin.to + "</span>");
+  // ── navigation ──────────────────────────────────────────────────────
+  function show(id) {
+    document.querySelectorAll(".screen").forEach((el) =>
+      el.classList.toggle("on", el.id === id));
+    document.querySelectorAll(".tab").forEach((el) =>
+      el.classList.toggle("on", el.dataset.tab === id));
+    if (id === "s-feed") drawFeed();
+    if (id === "s-you") drawYou();
+  }
+  document.querySelectorAll(".tab").forEach((t) =>
+    t.addEventListener("click", () => show(t.dataset.tab)));
 
-    const entrance = S.arrived ? " arrive" : " rest";
-    S.arrived = false;
+  // ── sheet ───────────────────────────────────────────────────────────
+  function closeSheet() {
+    $("sheet").classList.remove("up");
+    $("scrim").classList.remove("on");
+  }
+  $("scrim").addEventListener("click", closeSheet);
 
-    box.innerHTML =
-      '<div class="coinwrap"><div class="coin' + entrance + '">' +
-      '<div><div class="num">' + whole + "<small>." + cents + "</small></div>" +
-      '<div class="tick">USDC</div></div></div>' +
-      '<div class="facts"><span class="head">On its way to ' + coin.to + '</span>' +
-      '<div class="route">' + beads.join('<span class="hop">&rsaquo;</span>') + "</div></div></div>";
-
-    // After the arrival pop finishes, let it settle into the idle bob.
-    if (!calm && entrance === " arrive") {
-      const el = box.querySelector(".coin");
-      setTimeout(() => { el.classList.remove("arrive"); el.classList.add("rest"); }, 640);
-    }
+  function openPass(f) {
+    const note = S.pocket[0];
+    $("sheet-body").innerHTML =
+      "<h3>Pass to " + f.name + "?</h3>" +
+      '<p class="note">They carry it until they meet someone closer to ' +
+      note.to + ". You are paid a share when it settles.</p>" +
+      '<div class="dock" style="padding:0">' +
+      '<button class="act go" id="confirm">Hand over ' + note.amount.toFixed(2) + "</button>" +
+      '<button class="act ghost" id="cancel">Not now</button></div>';
+    $("sheet").classList.add("up");
+    $("scrim").classList.add("on");
+    $("cancel").addEventListener("click", closeSheet);
+    $("confirm").addEventListener("click", () => { closeSheet(); commitPass(f); });
   }
 
-  function drawStreet() {
-    $("street").innerHTML = S.street
-      .slice()
-      .sort((a, b) => b.at - a.at)
-      .map((e) => {
-        const cls = "note" + (e.fresh ? " just" : "");
-        e.fresh = false;
-        const named = e.html.match(/<b>([^<]+)<\/b>/);
-        const actor = e.mine ? "You" : named ? named[1] : "";
-        return '<div class="' + cls + '"><span class="dot" style="background:' +
-          (e.mine ? "#3C3C3C" : actor ? hueFor(actor) : "#D9D9D9") + '">' + (actor ? actor[0] : "") +
-          "</span><p>" + e.html + "</p><time>" + ago(Date.now() - e.at) + "</time></div>";
-      })
-      .join("");
+  function commitPass(f) {
+    const amt = S.pocket[0].amount.toFixed(2);
+    S.pocket.shift();
+    S.passed += 1;
+    S.met.add(f.id);
+    f.holding = true;
+    f.goesAt = Date.now() + rand(3000, 6000);
+    S.sel = null;
+    toast(f.name + " is carrying it now");
+    log("You passed <i>" + amt + "</i> to <b>" + f.name + "</b>", true);
+    draw();
+  }
+
+  // ── drawing ─────────────────────────────────────────────────────────
+  function drawPurse() {
+    const note = S.pocket[0];
+    const box = $("purse");
+    if (!note) {
+      box.className = "hollow solid";
+      box.innerHTML =
+        "<h3>Your hands are empty</h3>" +
+        "<p>Anyone with a gold ring is holding something. Take it, and it travels with you.</p>";
+      return;
+    }
+    const steps = note.route.map((n) => '<span class="step">' + n + "</span>");
+    steps.push('<span class="step you">You</span>');
+    steps.push('<span class="step end">' + note.to + "</span>");
+    box.className = "purse solid";
+    box.innerHTML =
+      '<div class="lab">In your pocket</div>' +
+      '<div class="fig">' + note.amount.toFixed(2) + "<small>USDC</small></div>" +
+      '<div class="path">' + steps.join('<span class="arrow">&rsaquo;</span>') + "</div>" +
+      '<div class="hint">Drag this onto someone, or use the button</div>';
+    arm(box);
   }
 
   /**
-   * Update the row in place rather than rebuilding it.
+   * Drag the money onto a person.
    *
-   * People arrive and leave every couple of seconds. Replacing the whole row
-   * each time meant a card could be torn out from under a finger mid-tap, and
-   * every remaining card restarted its entrance animation. Only genuinely new
-   * people get a node, only genuinely departed people lose one.
+   * Tapping a name and then a button is how a form works. Handing something to
+   * someone is a physical act, so the primary gesture is physical too: pick the
+   * money up, carry it to a face, let go. The button stays for anyone who would
+   * rather not drag, and for reachability.
    */
-  function drawFolks() {
-    const row = $("folks");
-    const any = S.folks.length > 0;
-    $("noone").style.display = any ? "none" : "block";
-    $("near-title").textContent = any
-      ? (S.folks.length === 1 ? "1 person nearby" : S.folks.length + " people nearby")
-      : "Nobody nearby";
+  function arm(card) {
+    let dragging = false, ox = 0, oy = 0, over = null;
 
-    const live = new Set(S.folks.map((f) => String(f.id)));
-    Array.from(row.children).forEach((node) => {
-      if (!live.has(node.dataset.id)) node.remove();
+    card.addEventListener("pointerdown", (e) => {
+      if (!S.pocket.length) return;
+      dragging = true;
+      ox = e.clientX; oy = e.clientY;
+      card.setPointerCapture(e.pointerId);
+      card.classList.add("lifted");
     });
 
-    S.folks.forEach((f, i) => {
-      let b = row.querySelector('[data-id="' + f.id + '"]');
+    card.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - ox, dy = e.clientY - oy;
+      card.style.transform = "translate(" + dx + "px, " + dy + "px) scale(0.96) rotate(" +
+        (dx * 0.02).toFixed(2) + "deg)";
+
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      const soul = under && under.closest ? under.closest(".soul") : null;
+      if (soul !== over) {
+        if (over) over.classList.remove("target");
+        over = soul;
+        if (over) over.classList.add("target");
+      }
+    });
+
+    const drop = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      card.classList.remove("lifted");
+      card.style.transform = "";
+      if (over) over.classList.remove("target");
+      const landed = over;
+      over = null;
+      if (!landed) return;
+      const f = S.folks.find((x) => String(x.id) === landed.dataset.id);
+      if (f) { S.sel = f.id; openPass(f); }
+    };
+    card.addEventListener("pointerup", drop);
+    card.addEventListener("pointercancel", drop);
+  }
+
+  function drawQueue() {
+    const q = $("queue");
+    const any = S.folks.length > 0;
+    $("nobody").style.display = any ? "none" : "block";
+    $("near-head").textContent = any
+      ? (S.folks.length === 1 ? "1 person nearby" : S.folks.length + " people nearby")
+      : "Nobody nearby";
+    $("home-sub").textContent = any ? "Someone is close enough" : "Looking around you";
+
+    const live = new Set(S.folks.map((f) => String(f.id)));
+    Array.from(q.children).forEach((n) => { if (!live.has(n.dataset.id)) n.remove(); });
+
+    S.folks.forEach((f) => {
+      let b = q.querySelector('[data-id="' + f.id + '"]');
       if (!b) {
         b = document.createElement("button");
         b.dataset.id = String(f.id);
-        b.className = "folk enter";
-        b.style.setProperty("--i", String(i));
-        b.addEventListener("click", () => {
-          S.sel = S.sel === f.id ? null : f.id;
-          draw();
-        });
-        row.appendChild(b);
+        b.className = "soul";
+        b.addEventListener("click", () => { S.sel = S.sel === f.id ? null : f.id; draw(); });
+        q.appendChild(b);
       }
-      const met = S.met.has(f.id);
+      b.className = "soul" + (f.holding ? " loaded" : "");
       b.setAttribute("aria-pressed", String(S.sel === f.id));
       b.innerHTML =
-        '<span class="av' + (f.holding ? " ring" : "") + '" style="background:' + hueFor(f.name) + '">' +
-        f.name[0] + "</span>" +
-        '<span class="who">' + f.name + "</span>" +
-        '<span class="has">' + (met ? "Met" : f.holding ? "Holding" : "New") + "</span>";
+        '<span class="head" style="background:' + hueFor(f.name) + '">' + f.name[0] + "</span>" +
+        '<span class="nm">' + f.name + "</span>" +
+        '<span class="st">' + (S.met.has(f.id) ? "Met" : f.holding ? "Holding" : "New") + "</span>";
     });
   }
 
-  function drawRest() {
-    const n = S.met.size;
-    let rank = RANKS[0];
-    RANKS.forEach((r) => { if (n >= r.at) rank = r; });
-    const badge = $("badge");
-    badge.textContent = rank.name;
-    badge.className = "badge" + (n >= 3 ? " lit" : "");
-
-    const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
-    $("score").innerHTML =
-      "You have met <b>" + plural(S.met.size, "person", "people") +
-      "</b> and passed on <b>" + plural(S.passed, "payment", "payments") + "</b>.";
-
-    const go = $("go");
+  function drawPrimary() {
+    const btn = $("primary");
     const f = S.folks.find((x) => x.id === S.sel);
-    let text, val = "";
-    if (!f) text = S.folks.length ? "Tap someone above" : "Nobody nearby";
-    else if (S.pocket.length) { text = "Pass it to " + f.name; val = S.pocket[0].amount.toFixed(2); }
-    else if (f.holding) text = "Take what " + f.name + " has";
-    else text = "Say hi to " + f.name;
-    go.disabled = !f;
-    $("go-text").textContent = text;
-    $("go-val").textContent = val;
+    btn.className = "act";
+    if (!f) {
+      btn.disabled = true;
+      btn.textContent = S.folks.length ? "Pick someone nearby" : "Nobody nearby";
+      return;
+    }
+    btn.disabled = false;
+    if (S.pocket.length) { btn.className = "act go"; btn.textContent = "Pass to " + f.name; }
+    else if (f.holding) { btn.className = "act go"; btn.textContent = "Take what " + f.name + " has"; }
+    else btn.textContent = "Say hello to " + f.name;
   }
 
-  function draw() { drawStage(); drawStreet(); drawFolks(); drawRest(); }
+  function rankNow() {
+    let r = RANKS[0];
+    RANKS.forEach((x) => { if (S.met.size >= x.at) r = x; });
+    return r;
+  }
 
-  $("go").addEventListener("click", () => {
+  function drawRank() { $("rank-name").textContent = rankNow().name; }
+
+  function drawFeed() {
+    $("feed").innerHTML = S.feed.slice().sort((a, b) => b.at - a.at).map((e) => {
+      const named = e.html.match(/<b>([^<]+)<\/b>/);
+      const actor = e.mine ? "You" : named ? named[1] : "";
+      const cls = "line solid" + (e.fresh ? " new" : "");
+      e.fresh = false;
+      return '<div class="' + cls + '"><span class="who" style="background:' +
+        (e.mine ? "rgba(255,255,255,0.9);color:#12131A" : hueFor(actor || "Z")) + '">' +
+        (actor ? actor[0] : "·") + "</span><p>" + e.html + "</p><time>" +
+        ago(Date.now() - e.at) + "</time></div>";
+    }).join("");
+  }
+
+  function drawYou() {
+    const r = rankNow();
+    const next = RANKS.find((x) => x.at > S.met.size);
+    $("you-key").textContent = S.key.slice(0, 6) + "..." + S.key.slice(-4);
+    $("you-body").innerHTML =
+      '<div class="purse solid" style="margin-bottom:12px">' +
+      '<div class="lab">Standing</div>' +
+      '<div class="fig" style="font-size:36px">' + r.name + "</div>" +
+      '<p class="sub" style="margin:10px 0 0">' +
+      (next ? "Meet " + (next.at - S.met.size) + " more to reach " + next.name
+            : "Nothing left to reach") + "</p></div>" +
+      '<div class="line solid"><p>You have met <b>' + S.met.size +
+      "</b> " + (S.met.size === 1 ? "person" : "people") + "</p></div>" +
+      '<div class="line solid"><p>You have passed on <b>' + S.passed +
+      "</b> " + (S.passed === 1 ? "payment" : "payments") + "</p></div>" +
+      '<div class="line solid"><p>Carrying <b>' + S.pocket.length + "</b> right now</p></div>" +
+      '<p class="sub" style="padding:14px 4px 0">Rank counts people, never handoffs. ' +
+      "Passing the same note back and forth with one friend moves nothing.</p>";
+  }
+
+  function drawPeek() {
+    $("peek").innerHTML = S.feed.slice().sort((a, b) => b.at - a.at).slice(0, 3)
+      .map((e) => {
+        const named = e.html.match(/<b>([^<]+)<\/b>/);
+        const actor = e.mine ? "You" : named ? named[1] : "";
+        return '<div class="line solid"><span class="who" style="background:' +
+          (e.mine ? "#fff;color:#12131A" : hueFor(actor || "Z")) + '">' +
+          (actor ? actor[0] : "\u00b7") + "</span><p>" + e.html + "</p><time>" +
+          ago(Date.now() - e.at) + "</time></div>";
+      }).join("");
+  }
+
+  function draw() { drawPurse(); drawQueue(); drawPrimary(); drawRank(); drawPeek(); }
+
+  $("primary").addEventListener("click", () => {
     const f = S.folks.find((x) => x.id === S.sel);
     if (!f) return;
+    if (S.pocket.length) { openPass(f); return; }
+
     const fresh = !S.met.has(f.id);
     S.met.add(f.id);
-
-    if (S.pocket.length) {
-      const amt = S.pocket[0].amount.toFixed(2);
-      S.pocket.shift();
-      S.passed += 1;
-      f.holding = true;
-      shout(f.name + " is carrying it now");
-      tell("You passed <u>" + amt + "</u> to <b>" + f.name + "</b>", true);
-    } else if (f.holding) {
+    if (f.holding) {
       f.holding = false;
-      S.pocket.unshift(newCoin(f.name));
-      S.arrived = true;
-      shout("You caught one from " + f.name);
-      tell("You took <u>" + S.pocket[0].amount.toFixed(2) + "</u> from <b>" + f.name + "</b>", true);
+      S.pocket.unshift(newNote(f.name));
+      toast("You caught one from " + f.name);
+      log("You took <i>" + S.pocket[0].amount.toFixed(2) + "</i> from <b>" + f.name + "</b>", true);
     } else {
-      shout(fresh ? "You met " + f.name : "You know " + f.name + " already");
-      if (fresh) tell("You met <b>" + f.name + "</b>", true);
+      toast(fresh ? "You met " + f.name : "You know " + f.name + " already");
+      if (fresh) log("You met <b>" + f.name + "</b>", true);
     }
-
-    f.goesAt = Date.now() + rand(2800, 5400);
+    f.goesAt = Date.now() + rand(3000, 6000);
     S.sel = null;
     draw();
   });
 
   setInterval(() => {
+    if (!S.landed) return;
     const now = Date.now();
     const before = S.folks.length;
     S.folks = S.folks.filter((f) => f.goesAt > now);
@@ -534,19 +776,21 @@
     if (S.folks.length < 4 && Math.random() < 0.4) S.folks.push(newFolk());
     if (S.folks.length !== before) {
       if (S.sel && !S.folks.some((f) => f.id === S.sel)) S.sel = null;
-      drawFolks();
-      drawRest();
+      drawQueue(); drawPrimary();
     }
   }, calm ? 3600 : 2300);
 
   for (let i = 0; i < 3; i += 1) S.folks.push(newFolk());
-  S.pocket.push(newCoin());
+  S.pocket.push(newNote());
   let back = 0;
-  for (let i = 0; i < 7; i += 1) {
+  for (let i = 0; i < 10; i += 1) {
     back += rand(150000, 900000);
-    S.street.push({ html: chatter(), mine: false, at: Date.now() - back, fresh: false });
+    S.feed.push({ html: chatter(), mine: false, at: Date.now() - back, fresh: false });
   }
-  setInterval(() => { tell(chatter()); drawStreet(); }, calm ? 45000 : 21000);
-  draw();
+  setInterval(() => {
+    if (!S.landed) return;
+    log(chatter());
+    if ($("s-feed").classList.contains("on")) drawFeed();
+  }, calm ? 45000 : 20000);
 })();
 </script>
