@@ -95,6 +95,8 @@ export interface TransportEvents {
   /** A peer proved its key. Safe to run an exchange with it now. */
   peerReady?(peer: PublicKey): void;
   peerGone?(peer: PublicKey): void;
+  /** An authenticated peer says it is handing us these notes now. */
+  handed?(peer: PublicKey, digests: string[]): void;
   /** Something failed inside a radio callback. Already contained; for logging. */
   error?(where: string, e: unknown): void;
 }
@@ -209,6 +211,18 @@ export class NearbyTransport implements Transport {
     const endpointId = this.keyToEndpoint.get(peer.toBase58());
     if (!endpointId) return;
     this.send(endpointId, { kind: "ack", digest: noteHash, sig: b64(signature) });
+  }
+
+  /**
+   * Tell an authenticated peer we are handing it these notes, so it asks for
+   * them now. Throws if the peer has walked out of range.
+   */
+  async hand(peer: PublicKey, noteHashes: string[]): Promise<void> {
+    const digests = [...new Set(noteHashes)];
+    if (digests.length === 0 || digests.length > LIMITS.maxHanded || !digests.every((d) => NOTE_HASH.test(d))) {
+      throw new MeshError("nothing valid to hand over");
+    }
+    this.send(this.endpointOf(peer), { kind: "hand", digests });
   }
 
   async stop(): Promise<void> {
@@ -433,6 +447,14 @@ export class NearbyTransport implements Transport {
       case "offer":
       case "nope":
         return this.settle(peer, m);
+      case "hand": {
+        try {
+          this.events.handed?.(key, m.digests);
+        } catch (e) {
+          this.events.error?.("handed", e);
+        }
+        return;
+      }
       case "ack": {
         try {
           this.server.acknowledged(key, m.digest, unb64(m.sig));
