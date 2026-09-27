@@ -6,5 +6,14 @@
     "moduleResolution": "Bundler",
     "types": []
   },
-  "include": ["index.ts", "App.tsx", "src/**/*.ts", "src/**/*.tsx"]
+  "include": [
+    "index.ts",
+    "demo.ts",
+    "App.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ]
 }

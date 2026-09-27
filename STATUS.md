@@ -15,8 +15,11 @@ nothing.
 | Type-check (app) | `npx tsc -p app` | clean |
 | Program units | `cargo test --manifest-path programs/carrier/Cargo.toml --lib` | 18/18 |
 | Protocol codec | `npx vitest run --root packages/protocol` | 24/24 |
-| Mesh | `npx vitest run --root packages/mesh` | 51/51 |
-| Game / scoring | `npx vitest run --root packages/game` | 29/29 |
+| Mesh | `npx vitest run --root packages/mesh` | 52/52 |
+| Game / scoring | `npx vitest run --root packages/game` | 30/30 |
+| Settlement client | `npx vitest run --root packages/client` | 42/42 (devnet e2e skipped without `CARRIER_E2E_RPC`) |
+| App logic | `npx vitest run --root app` | 29/29 |
+| App contrast | `node --experimental-strip-types app/scripts/contrast.ts` | 38/38 pairs AA |
 | Settlement (e2e, local validator) | `./scripts/localnet.sh` | not run since the fixes (no validator in the audit environment); type-checks |
 | Settlement (e2e, devnet) | `./scripts/devnet.sh` | not run; the devnet deployment predates the fixes and must be redeployed |
 | Scripts lint | `bash -n scripts/*.sh && shellcheck scripts/*.sh` | clean |

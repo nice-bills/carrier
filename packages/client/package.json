@@ -1,0 +1,29 @@
+{
+  "name": "@carrier/client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Carrier onchain client: pouch transactions, settlement building and sending",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./idl": "./src/idl.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json",
+    "sync-idl": "node scripts/sync-idl.mjs"
+  },
+  "dependencies": {
+    "@carrier/mesh": "*",
+    "@carrier/protocol": "*",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^1.98.0"
+  },
+  "devDependencies": {
+    "@noble/hashes": "^1.6.1",
+    "tweetnacl": "^1.0.3"
+  }
+}

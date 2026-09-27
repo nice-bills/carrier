@@ -1,7 +1,8 @@
 import * as SecureStore from "expo-secure-store";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, VersionedTransaction, type Transaction } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import type { Signer } from "@carrier/mesh";
+import { WalletError } from "./wallet-error";
 
 const KEY = "carrier.device.secret";
 
@@ -48,6 +49,20 @@ export class DeviceWallet implements Signer {
     return new DeviceWallet(parseStoredKey(stored));
   }
 
+  /**
+   * The key already on this phone, or null if it has none yet. Never creates
+   * one: first run makes the key on the step that explains it.
+   */
+  static async existing(): Promise<DeviceWallet | null> {
+    let stored: string | null;
+    try {
+      stored = await SecureStore.getItemAsync(KEY);
+    } catch (e) {
+      throw new WalletError("keystore-unavailable", "The phone's keystore could not be read", e);
+    }
+    return stored === null ? null : new DeviceWallet(parseStoredKey(stored));
+  }
+
   get publicKey() {
     return this.keypair.publicKey;
   }
@@ -61,25 +76,25 @@ export class DeviceWallet implements Signer {
   sign(message: Uint8Array): Uint8Array {
     return nacl.sign.detached(message, this.keypair.secretKey);
   }
-}
 
-export const shorten = (key: { toBase58(): string }) => {
-  const s = key.toBase58();
-  return `${s.slice(0, 4)}…${s.slice(-4)}`;
-};
+  /**
+   * Sign a transaction this phone pays the fee for (settling, setting up a
+   * pouch). Adds this key's signature and leaves any others in place.
+   */
+  async signTransaction<T extends Transaction | VersionedTransaction>(tx: T): Promise<T> {
+    if (tx instanceof VersionedTransaction) tx.sign([this.keypair]);
+    else (tx as Transaction).partialSign(this.keypair);
+    return tx;
+  }
 
-export type WalletErrorCode = "keystore-unavailable" | "corrupt-key";
-
-export class WalletError extends Error {
-  constructor(
-    readonly code: WalletErrorCode,
-    message: string,
-    readonly cause?: unknown,
-  ) {
-    super(message);
-    this.name = "WalletError";
+  async signAllTransactions<T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]> {
+    for (const tx of txs) await this.signTransaction(tx);
+    return txs;
   }
 }
+
+export { shorten } from "./format";
+export { WalletError, type WalletErrorCode } from "./wallet-error";
 
 /** Parse the stored secret, refusing anything that is not exactly a 64-byte key. */
 export function parseStoredKey(stored: string): Keypair {

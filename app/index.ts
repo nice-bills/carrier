@@ -2,7 +2,13 @@
 // crypto, Buffer and TextEncoder while their modules load.
 import "./src/polyfills";
 
+import { createElement } from "react";
 import { registerRootComponent } from "expo";
 import App from "./App";
+import { nativeServices } from "./src/services/native";
 
-registerRootComponent(App);
+// The real device: keystore, private files, Nearby Connections, Solana RPC.
+// For the browser preview with sample data, see `demo.ts`.
+const services = nativeServices();
+
+registerRootComponent(() => createElement(App, { services }));

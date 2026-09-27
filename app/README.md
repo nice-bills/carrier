@@ -1,6 +1,24 @@
 # Carrier — Android client
 
-One screen: what this phone is carrying, and who is near enough to hand it to.
+A pocket for payments that travel by hand. First run ends in a real handoff;
+after that there are three tabs:
+
+- **Carry** — what is in your pocket, drawn as amber slips with a red stamp
+  for everyone who carried each one, and the people in range. Drag a slip onto
+  a person (or tap them and use the button, or the slip's screen-reader
+  actions) to hand it on. Tap someone holding a payment to take it. Pay
+  someone from here. Slips paid to you, or that you carry, can be settled
+  from here when the phone has signal.
+- **Around** — who is in range, and a logbook of everything this phone has
+  seen: handoffs, arrivals, settlements.
+- **You** — rank (distinct people met), what this phone has done, its pouch
+  (committed, available, what you can still sign offline, bond, when the
+  period closes), "Set up pouch", and the device key.
+
+Design tokens (paper, ink, slip, stamp, denim, kraft, receipt) are in
+`src/theme.ts`, ported from `docs/pocket.html`. The mockup's fonts are not
+bundled; Android uses Roboto at heavy weights, the system monospace, and
+"casual" for the handwriting (`src/ui/fonts.ts`).
 
 ## Running it
 
@@ -18,72 +36,133 @@ npx expo run:android
 `expo-nearby-connections` 1.x is a Nitro module and needs the New Architecture
 (`newArchEnabled` is on in `app.json`) and `react-native-nitro-modules`. Its
 compatibility table lists Expo 51 and 55; this app is on Expo 52 / RN 0.76, a
-combination the library does not list and that has not been built yet (see below).
+combination the library does not list and that has not been built yet.
 
 The app asks for Bluetooth, Nearby devices and Location when it turns the radio
-on, and explains on screen if they are refused. Location is not used for
-anything; Android requires it before it will let an app scan for nearby devices.
+on, and says in one sentence why. Location is not used for anything; Android
+requires it before it will let an app scan for nearby devices.
 
-Type-check without a device: `npm run typecheck -w app` (or `npx tsc -p app`).
+Checks that run without a device:
 
-## Why Nearby Connections and not BLE
+```bash
+npx tsc -p app                                            # types
+npx vitest run --root app                                 # pocket, books, messages, demo device
+node --experimental-strip-types app/scripts/contrast.ts   # WCAG 2.2 AA for every colour pair
+```
 
-`react-native-ble-plx` is the obvious choice and it cannot do this. It is
-central-only — it can connect *to* peripherals but cannot advertise — so two
-phones running it never see each other. That has been open since 2018 and is
-the library's scope, not a misconfiguration.
+## Browser preview (demo mode)
 
-Nearby Connections does both roles, and its `P2P_CLUSTER` strategy is
-many-to-many, which is the shape of a mesh. It negotiates Bluetooth and Wi-Fi
-Direct underneath, so range and throughput beat raw BLE. All of it is local
-radio: no internet at any point.
+`demo.ts` is a second entry point that boots the same `App` on in-memory fakes
+(`src/demo/services.ts`): no keystore, files, radio or network. Every slip in
+it is a real signed bundle and the "other phones" are real pockets joined by a
+function call. The screen is picked from the query string
+(`src/demo/script.ts`): `?screen=onboarding&step=0..4`, `carry`, `around`,
+`you`, `pay&step=who|amount|confirm`, `confirm`, `pass`, `settle`, `pouch`,
+`terms`, `privacy`; add `&reduced=1`, `&offline=1`, `&nopouch=1`, `&alone=1`.
+It needs `react-dom` and `react-native-web` to run in a browser, which are not
+dependencies of the app.
 
-Android only. iOS restricts this enough that supporting it would cost a day and
-return nothing for a demo.
+Screens never import a device module. They get everything through
+`src/services/types.ts`: `src/services/native.ts` is the phone,
+`src/demo/services.ts` the preview.
 
-## How a handoff works on the phone
+## How money moves
 
-1. Each phone advertises a random session id (`c1-` + 16 hex), not its wallet
-   key, and rotates it every time the radio is turned on.
-2. On connecting, each side sends a random 32-byte challenge. The other signs
-   `carrier:peer-auth:v1 | nonce | its session | our session | its key` with its
-   wallet key. Nothing else is accepted from, or sent to, a peer until that
-   proof verifies (`src/transport/auth.ts`).
-3. Once a peer is proven, the phone asks for its digests, requests each note it
-   does not hold, re-verifies the whole chain (`src/chain.ts`), hands it to
-   `CarrierNode.acceptHandoff`, and sends back its counter-signature
-   (`Pocket.exchange` in `src/pocket.ts`). Both phones do this, so notes move
-   both ways. A note addressed to this phone is kept, not passed on.
-4. Held notes are written to the app's private storage after every change and
-   re-verified when the app starts again.
+**Handing over.** Each phone advertises a random session id, never its key.
+On connecting, each side proves its key by signing a fresh challenge bound to
+both session ids (`src/transport/auth.ts`); nothing else is accepted until that
+verifies. Then:
+
+1. Your person confirms a pass on the sheet. The pocket records the intent
+   (`Pocket.handTo`) and the radio sends a `hand` message naming the note.
+2. The other phone asks for exactly that note, re-verifies the whole chain
+   (`src/chain.ts`), takes custody (`CarrierNode.acceptHandoff`) and sends
+   back its counter-signature.
+3. That signature is the receipt. Only when it verifies does the giver let go
+   of the note (`Pocket.acknowledged`) and log the handoff.
+
+A note this phone signed is only ever served to the person it was handed to.
+A note it carries for someone else can also be *taken* by anyone nearby who
+asks. A note paid to this phone is never offered; it waits to be settled.
+Every handoff is co-signed by both phones and counts toward rank.
+
+**Paying.** A payment needs this phone's pouch: its address, current epoch
+and epoch start, fetched with `@carrier/client` whenever there is signal and
+kept on disk. Offline, the phone refuses to sign past that pouch's
+`available` minus everything it has signed and not yet seen settle
+(`src/ledger.ts`). Notes expire after a week or when the pouch's period closes,
+whichever is first.
+
+**Slots are never reused.** Signing the same slot twice is a double spend and
+the program takes the bond for it. The slot and the note are written to the
+pocket file *before* the note is signed; if that write fails, nothing is
+signed. On restart every signed note's slot is re-added to the used set.
+
+**Settling.** With signal, a slip paid to you (or one you carry) has a
+Settle button. `settleBundle` from `@carrier/client` builds and sends the
+transactions, this phone paying the fees. When it lands the app shows a
+receipt with SETTLED stamped on it: who was paid, and how much each carrier
+got (mirroring `split_payout` in the program). While online the app also
+checks the pouches behind every note it holds or handed on, and when one
+settles elsewhere it says so. If a slot turns out to have been taken by a
+*different* note (the sender signed it twice), the app says the note can no
+longer settle; it cannot yet file the double-spend proof itself.
+
+**Setting up a pouch** (devnet only for now, `src/config.ts`): the sheet says
+it needs SOL for fees and USDC to commit, offers a devnet airdrop and a link
+to Circle's faucet, and opens the pouch with the chosen allowance plus a bond
+of a fifth of it.
+
+## Hardening kept from before
 
 Every inbound payload is shape-checked; frames per message, half-finished
-transfers, bytes buffered, digest-list length and frame rate are capped per
-peer; requests time out after 10 s; and a peer that keeps breaking the rules is
-disconnected (`src/transport/messages.ts`).
+transfers, bytes buffered, digest-list length, handed-list length and frame
+rate are capped per peer; requests time out after 10 s; a peer that keeps
+breaking the rules is disconnected (`src/transport/messages.ts`,
+`src/transport/nearby.ts`). Held notes are re-verified from scratch when the
+app starts. The key lives in the Android keystore and is never replaced on a
+read error. Polyfills for Hermes are in `src/polyfills.ts`.
 
-**Not built: settlement from the phone.** The app carries, receives and hands
-off notes, but it never submits a settlement transaction. A note paid to this
-phone is shown as "paid to you" and has to be settled from a computer with
-signal (see `tests/` for how). There is also no screen to originate a payment
-yet: `CarrierNode.originate` exists, the UI for it does not.
+## Accessibility
+
+Every control has a role, label and (where it helps) a hint, and is at least
+48dp. Every drag has a button equivalent. With reduced motion on, the slip
+snaps instead of springing, SETTLED appears instead of slamming, sheets
+appear in place and the first-run demo shows its last frame. Arrivals,
+handoffs and settlements are announced to screen readers. Colour is never the
+only signal (stamps and marks carry words). No text sits on translucency: the
+sheet scrim is the only translucent colour and holds nothing. Contrast for
+every pair is checked by `scripts/contrast.ts`.
 
 ## What is verified and what is not
 
-The mesh logic underneath this app is tested without radios — custody,
-co-signed handoffs, chain validation, framing, and the wire format round trip
-(`npx vitest run --root packages/mesh`). Settlement is tested against a real
-validator (`npx vitest run --root tests`). Current counts are in
-[`STATUS.md`](../STATUS.md), not here, so they cannot drift.
+Verified without a device: types (`npx tsc -p app`); the pocket's pay → hand
+over → deliver path, carrier hops, taking, slot bookkeeping across restarts,
+refusing to overspend, refusing to sign when the slot cannot be saved, and
+noticing settlements and double spends, with real signatures between real
+pockets joined in memory (`src/pocket.test.ts`, `src/demo/demo.test.ts`);
+colour contrast.
 
-The app code type-checks (`npx tsc -p app`). The transport, handshake and
-pocket were also exercised in Node against an in-memory fake of
-`expo-nearby-connections`: two phones authenticate, exchange a note,
-acknowledge it, and reload it after a restart; a peer sending junk frames is
-disconnected. That fake is not the real radio.
+**Not verified without hardware:** anything on a phone. The native build
+(Expo 52 + Nitro 0.35 + expo-nearby-connections 1.1.1), the permission flow,
+discovery timing, payload limits, walking out of range mid-transfer, the drag
+gesture and its hit-testing, TalkBack reading order and announcements, the
+system fonts' look, and `@carrier/client` running under Hermes (settlement,
+pouch setup and the airdrop against devnet). The screens themselves have been
+type-checked, not rendered.
 
-**The radio layer itself is unverified on hardware.** Nothing here has run on a
-phone: the native build (Expo 52 + Nitro 0.35 + expo-nearby-connections 1.1.1),
-the permission flow, discovery timing, the payload size limit, and what happens
-when someone walks out of range mid-transfer are all unknown until two Android
-devices are in the same room.
+## Browser preview
+
+The whole app runs in a browser on in-memory fakes (sample slips, people and
+a pouch), with react-native swapped for react-native-web. Use it for
+screenshots and design review; it is not the shipping build and never loads
+the radio, keystore or file system.
+
+```
+npm run preview -w app          # http://localhost:5199/?screen=carry
+node app/preview/shot.mjs "?screen=you" you.png   # with the preview running
+```
+
+Screens: `?screen=onboarding&step=0..4`, `carry`, `around`, `you`, `pay&step=who|amount|confirm`,
+`confirm`, `pass`, `settle`, `pouch`, `terms`, `privacy`. Modifiers: `&reduced=1`,
+`&offline=1`, `&nopouch=1`, `&alone=1`. See `src/demo/script.ts`.

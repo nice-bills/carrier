@@ -25,6 +25,8 @@ export const LIMITS = {
   frameBurst: 120,
   /** Rejected frames or messages before the peer is dropped. */
   maxStrikes: 8,
+  /** Notes named in one "hand" message. A person passes one slip at a time. */
+  maxHanded: 8,
   /** Connected peers at once. More are refused at invitation. */
   maxPeers: 8,
   /** How long `request` and `digests` wait for an answer. */
@@ -52,7 +54,14 @@ export type Message =
   | { kind: "want"; id: string; digest: string }
   | { kind: "offer"; id: string; body: unknown }
   | { kind: "nope"; id: string }
-  | { kind: "ack"; digest: string; sig: string };
+  | { kind: "ack"; digest: string; sig: string }
+  /**
+   * "I am handing you these now." Sent by a giver after its person confirmed a
+   * pass, so the receiver pulls exactly these notes rather than everything.
+   * It moves nothing by itself: the receiver still asks with `want`, and the
+   * giver still decides in `offerFor` whether to serve each one.
+   */
+  | { kind: "hand"; digests: string[] };
 
 export const TRANSFER_ID = /^[0-9a-f]{16}$/;
 export const REQUEST_ID = /^[0-9a-f]{16}$/;
@@ -114,6 +123,12 @@ export function parseMessage(x: unknown): Message | null {
       return typeof x.digest === "string" && NOTE_HASH.test(x.digest) && isB64(x.sig, 88)
         ? { kind: "ack", digest: x.digest, sig: x.sig }
         : null;
+    case "hand": {
+      if (!Array.isArray(x.digests) || x.digests.length === 0 || x.digests.length > LIMITS.maxHanded) return null;
+      const digests = x.digests.filter((d): d is string => typeof d === "string" && NOTE_HASH.test(d));
+      if (digests.length !== x.digests.length) return null;
+      return { kind: "hand", digests: [...new Set(digests)] };
+    }
     default:
       return null;
   }

@@ -7,9 +7,13 @@
     "start": "expo start --dev-client",
     "android": "expo run:android",
     "prebuild": "expo prebuild --platform android --clean",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "contrast": "node --experimental-strip-types scripts/contrast.ts",
+    "preview": "vite --config preview/vite.config.mts"
   },
   "dependencies": {
+    "@carrier/client": "*",
     "@carrier/mesh": "*",
     "@carrier/protocol": "*",
     "@solana/web3.js": "^1.98.0",
@@ -27,6 +31,11 @@
   },
   "devDependencies": {
     "@types/react": "~18.3.12",
-    "typescript": "~5.6.0"
+    "@vitejs/plugin-react": "^4.7.0",
+    "playwright-core": "^1.63.0",
+    "react-dom": "^18.3.1",
+    "react-native-web": "^0.19.13",
+    "typescript": "~5.6.0",
+    "vite": "^5.4.21"
   }
 }
