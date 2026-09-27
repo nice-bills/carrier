@@ -1,11 +1,15 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import * as Haptics from "expo-haptics";
 import {
   AccessibilityInfo,
   ActivityIndicator,
   Animated,
   Easing,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -60,10 +64,20 @@ export function announce(text: string) {
 /**
  * A short buzz for the moments you should feel: a slip landing in your pocket,
  * signing, a settlement. Haptics are not motion, so reduced motion keeps them.
+ * iOS ignores vibration lengths (every buzz is a long one), so there the
+ * Taptic Engine plays the matching feedback instead.
  */
 export function buzz(kind: "tap" | "land" | "success") {
   try {
-    if (kind === "tap") Vibration.vibrate(12);
+    if (Platform.OS === "ios") {
+      const done =
+        kind === "tap"
+          ? Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+          : kind === "land"
+            ? Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+            : Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      done.catch(() => {});
+    } else if (kind === "tap") Vibration.vibrate(12);
     else if (kind === "land") Vibration.vibrate([0, 18, 70, 30]);
     else Vibration.vibrate([0, 22, 90, 45]);
   } catch {
@@ -879,7 +893,8 @@ const kt = StyleSheet.create({
  * A bottom sheet on the page colour, springing up over a scrim. The scrim is
  * the one translucent thing in the app, and nothing is ever written on it.
  * Android's back button and a tap on the scrim both close it; with reduced
- * motion it appears in place.
+ * motion it appears in place. On iOS it rises with the keyboard and keeps its
+ * last button above the home indicator.
  */
 export function Sheet({
   visible,
@@ -918,7 +933,7 @@ export function Sheet({
   }, [visible, reduced]);
   return (
     <Modal visible={shown} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
-      <View style={sh.fill}>
+      <KeyboardAvoidingView style={sh.fill} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]}>
           <Pressable
             style={sh.scrim}
@@ -933,16 +948,18 @@ export function Sheet({
           accessibilityViewIsModal
         >
           <View style={sh.grab} />
-          <ScrollView contentContainerStyle={sh.body} keyboardShouldPersistTaps="handled">
-            {hero}
-            <Text style={[sh.title, center && sh.center]} accessibilityRole="header">
-              {title}
-            </Text>
-            {lede ? <Text style={[sh.lede, center && sh.center]}>{lede}</Text> : null}
-            {children}
-          </ScrollView>
+          <SafeAreaView style={sh.safe}>
+            <ScrollView contentContainerStyle={sh.body} keyboardShouldPersistTaps="handled">
+              {hero}
+              <Text style={[sh.title, center && sh.center]} accessibilityRole="header">
+                {title}
+              </Text>
+              {lede ? <Text style={[sh.lede, center && sh.center]}>{lede}</Text> : null}
+              {children}
+            </ScrollView>
+          </SafeAreaView>
         </Animated.View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -957,6 +974,7 @@ const sh = StyleSheet.create({
     maxHeight: "92%",
   },
   tall: { height: "92%" },
+  safe: { flexGrow: 1, flexShrink: 1 },
   grab: { width: 40, height: 5, borderRadius: 3, backgroundColor: C.ruleStrong, alignSelf: "center", marginTop: 10 },
   body: { paddingHorizontal: S.gutter, paddingTop: 16, paddingBottom: 30 },
   title: { fontFamily: FONT.face, fontSize: T.sheetTitle, fontWeight: "800", letterSpacing: -0.5, color: C.ink, marginBottom: 6, lineHeight: 31 },

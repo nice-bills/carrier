@@ -457,11 +457,11 @@ function OptIn({ c }: { c: Carrier }) {
               <Point text="A payment’s places travel with its slip to the next phones, so they can draw the route too." />
               <Point text="It’s off until you turn it on, and you can turn it off at any time." />
             </View>
-            <Button label="Turn on the map" hint="Asks Android for your location, rounded to about 100 m" onPress={turnOn} busy={busy} style={{ marginTop: 18 }} />
+            <Button label="Turn on the map" hint="Asks for your location, rounded to about 100 m" onPress={turnOn} busy={busy} style={{ marginTop: 18 }} />
             {refused ? (
               <View style={m.refused} accessibilityLiveRegion="polite">
                 <Text style={m.refusedText}>The map needs Location allowed for Carrier. You can allow it in settings.</Text>
-                <Pressable onPress={c.services.openSettings} accessibilityRole="button" accessibilityHint="Opens Android settings for Carrier" style={m.link}>
+                <Pressable onPress={c.services.openSettings} accessibilityRole="button" accessibilityHint="Opens settings for Carrier" style={m.link}>
                   <Text style={[m.linkText, { color: C.ink }]}>Open settings</Text>
                 </Pressable>
               </View>

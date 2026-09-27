@@ -40,6 +40,7 @@ import type { Carrier } from "../useCarrier";
 import { MapGlyph } from "../ui/chrome";
 import { slipFacts } from "./Slip";
 import { money } from "./You";
+import { LOCATION_POLICY, PASSES_WITH } from "../platform";
 
 /** One sentence about the public record, said where it matters. */
 const PUBLIC_RECORD = "When it settles, the keys of everyone who carried it, and the time of each handoff, go on a public record that cannot be deleted.";
@@ -832,7 +833,7 @@ const LEGAL: Record<"terms" | "privacy", { title: string; parts: [string, string
       ["Your key", "Your key is created on your phone and stored in its secure storage. We never receive a copy and cannot recover it. If you lose the phone or reset the app, anything the key controls is gone."],
       ["Carrying payments", "When you accept a payment from someone, your phone holds it until you hand it on or until it is settled. Carriers receive a share of the payment when it settles. A payment that never settles pays nobody, including you."],
       ["Your offline allowance", "The allowance you choose is locked on Solana as a deposit. It limits how much you can have out in unsettled payments at once. If you sign two payments against the same slot, the protocol takes the amount from your bond and pays it to the person who could not settle."],
-      ["No warranty", "Carrier is provided as it is, without warranty of any kind. The radio layer has not been tested across Android devices. Do not use this build to move anything you cannot afford to lose."],
+      ["No warranty", `Carrier is provided as it is, without warranty of any kind. The radio layer has not been tested across devices, and passes only to ${PASSES_WITH}. Do not use this build to move anything you cannot afford to lose.`],
     ],
   },
   privacy: {
@@ -841,7 +842,7 @@ const LEGAL: Record<"terms" | "privacy", { title: string; parts: [string, string
       ["What stays on your phone", "Your key, the payments you are carrying, and the list of people you have met. None of it is sent to us. We do not run a server that could receive it."],
       ["What other phones see", "Phones within radio range see a random identifier while Carrier is open. When you hand a payment over, the other phone learns your public key."],
       ["What becomes public", "When a payment settles, the public key of each person who carried it, the time of each handoff, the amount, the sender and the recipient are written to Solana, which anyone can read and nobody can delete. Public keys are not names, but someone who knows your key can infer where you were near another carrier."],
-      ["Location", "Android requires location permission before an app can scan for nearby devices. Carrier asks for it for that reason alone and never reads your location."],
+      ["Location", LOCATION_POLICY],
       ["What we do not collect", "No name, email, phone number, contacts, location, advertising identifier or analytics."],
     ],
   },

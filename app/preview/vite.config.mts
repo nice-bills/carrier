@@ -16,6 +16,7 @@ export default defineConfig({
       { find: /^react-native$/, replacement: "react-native-web" },
       { find: /^expo$/, replacement: here("./expo-stub.ts") },
       { find: /^expo-status-bar$/, replacement: here("./status-bar-stub.ts") },
+      { find: /^expo-haptics$/, replacement: here("./haptics-stub.ts") },
     ],
   },
   define: { "process.env": {}, __DEV__: "false", global: "globalThis" },

@@ -1,5 +1,5 @@
 // Walk the whole first-run journey on an emulated Pixel 7 (touch, Android
-// browser, phone viewport) against the running preview, with a real touch drag
+// browser, phone viewport; DEVICE="iPhone 15" plays an iPhone, with iOS copy) against the running preview, with a real touch drag
 // of a slip onto a person. Saves a screenshot per step and a video to OUT.
 //   npm run preview          (in another terminal)
 //   node preview/phone-run.mjs [out-dir]
@@ -7,7 +7,9 @@ import { mkdirSync } from "node:fs";
 import { chromium, devices } from "playwright-core";
 const OUT = process.argv[2] ?? "phone-run";
 mkdirSync(OUT, { recursive: true });
-const dev = devices["Pixel 7"];
+const DEVICE = process.env.DEVICE ?? "Pixel 7";
+const dev = devices[DEVICE];
+const os = /iphone/i.test(DEVICE) ? "&os=ios" : "";
 const b = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
 const ctx = await b.newContext({ ...dev, recordVideo: { dir: `${OUT}/video`, size: dev.viewport } });
 const p = await ctx.newPage();
@@ -29,7 +31,7 @@ const step = async (name, fn, wait = 1300) => {
   await p.waitForTimeout(wait); await snap(name);
 };
 const tapText = (t, o = {}) => p.getByText(t, o).last().tap();
-await p.goto((process.env.PREVIEW_URL ?? "http://localhost:5199/") + "?screen=onboarding&step=0", { waitUntil: "networkidle", timeout: 120000 });
+await p.goto((process.env.PREVIEW_URL ?? "http://localhost:5199/") + "?screen=onboarding&step=0" + os, { waitUntil: "networkidle", timeout: 120000 });
 await p.waitForTimeout(2500); await snap("welcome");
 await step("set up", () => tapText("Set up this phone", { exact: true }), 6000);
 await step("allow nearby", () => tapText("Allow nearby access", { exact: true }));

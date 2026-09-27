@@ -1,4 +1,4 @@
-# Carrier — Android client
+# Carrier — phone client (Android and iPhone)
 
 A pocket for payments that travel by hand. First run ends in a real handoff;
 after that there are three tabs:
@@ -23,8 +23,13 @@ bundled; Android uses Roboto at heavy weights, the system monospace, and
 ## Running it
 
 Nearby Connections needs native code, so Expo Go will not work — this needs a
-development build on a real Android device. Two devices, because a mesh with one
-node is just a wallet.
+native build on real phones. Two of them, because a mesh with one node is just
+a wallet, and **two of the same kind**: Android phones pass to Android phones
+(Google Nearby Connections) and iPhones to iPhones (Apple Multipeer
+Connectivity). The two stacks cannot hear each other, so a mixed room splits in
+two.
+
+### Android
 
 ```bash
 npm ci
@@ -33,14 +38,61 @@ npx expo prebuild --platform android --clean
 npx expo run:android
 ```
 
+### iPhone
+
+Everything iOS needs is in `app.json` and runs at prebuild: bundle id
+`xyz.carrier.mesh`, the Local Network and Bluetooth prompts (Multipeer asks for
+both itself the first time the radio starts; there is no runtime call), the
+`_carrier._tcp` and `_carrier._udp` Bonjour services (`plugins/with-multipeer-udp.js`
+adds the UDP one), and the location prompt, which only the map uses. Haptics
+use the Taptic Engine (`expo-haptics`), since iOS ignores vibration lengths.
+
+`patches/expo-nearby-connections+1.1.1.patch` (applied by `npm ci`) fixes the
+library's iOS side: it gave advertising and discovery separate peer ids and
+sessions, so the id a phone discovered was not the id that connected. The
+transport also never asks Multipeer to drop a single peer, because on iOS that
+ends every connection and stops the radio; a peer it refuses is ignored
+instead (`src/transport/nearby.ts`).
+
+**With a Mac** (free): install Xcode, plug the iPhone in, turn on Developer
+Mode (Settings › Privacy & Security), then
+
+```bash
+npm ci
+cd app
+npx expo prebuild --platform ios --clean
+npx expo run:ios --device --configuration Release
+```
+
+Xcode will ask for a team the first time: a free Apple ID works ("Personal
+Team"). The app then runs for 7 days before it needs reinstalling. If the bundle
+id is taken, change `ios.bundleIdentifier` in `app.json`.
+
+**Without a Mac**: EAS builds it in the cloud (`eas.json`, profile `preview`),
+but installing on a phone needs a paid Apple Developer account ($99 a year) to
+sign it:
+
+```bash
+npm i -g eas-cli
+cd app
+eas build --platform ios --profile preview
+```
+
+EAS registers the phones and gives an install link. Nothing about this has
+been run yet: the iOS bundle builds (`npx expo export --platform ios`) and
+prebuild generates the Xcode project, but no one has compiled it.
+
+### Both
+
 `expo-nearby-connections` 1.x is a Nitro module and needs the New Architecture
 (`newArchEnabled` is on in `app.json`) and `react-native-nitro-modules`. Its
 compatibility table lists Expo 51 and 55; this app is on Expo 52 / RN 0.76, a
 combination the library does not list and that has not been built yet.
 
-The app asks for Bluetooth, Nearby devices and Location when it turns the radio
-on, and says in one sentence why. Location is not used for anything; Android
-requires it before it will let an app scan for nearby devices.
+On Android the app asks for Bluetooth, Nearby devices and Location when it
+turns the radio on, and says in one sentence why. Location is not used for the
+radio; Android requires it before it will let an app scan for nearby devices.
+On iPhone the system asks for Local Network and Bluetooth by itself.
 
 Checks that run without a device:
 

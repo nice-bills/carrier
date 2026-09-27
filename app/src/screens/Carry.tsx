@@ -199,7 +199,7 @@ export function CarryScreen({
   let primary: { label: string; spoken?: string; hint: string; onPress?: () => void; disabled?: boolean };
   if (radio.state === "needs-permission") {
     primary = radio.blocked
-      ? { label: "Open settings", hint: "Opens Android settings to allow Nearby devices", onPress: c.services.openSettings }
+      ? { label: "Open settings", hint: "Opens settings to allow Nearby devices", onPress: c.services.openSettings }
       : { label: "Allow nearby access", hint: "Asks Android for Nearby devices and Location", onPress: c.startRadio };
   } else if (radio.state === "off" || radio.state === "unavailable") {
     primary = { label: "Look for people", hint: "Turns the radio on so nearby phones can find you", onPress: c.startRadio };

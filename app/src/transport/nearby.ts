@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { Platform } from "react-native";
 import { Buffer } from "buffer";
 import { getRandomValues } from "expo-crypto";
 import {
@@ -72,7 +73,14 @@ import {
  *   breaking the rules is disconnected. Every native callback runs inside a
  *   try/catch, because a throw there is fatal in a release build.
  *
- * Android only. iOS Multipeer is a different stack and cannot talk to it.
+ * On iOS the same library runs Apple Multipeer Connectivity instead. The two
+ * stacks cannot talk to each other: iPhones pass to iPhones, Androids to
+ * Androids. Two iOS differences shape this file. Multipeer cannot drop one
+ * peer (its disconnect ends the whole session, radio included), so there a
+ * peer we refuse or kick is only forgotten and ignored; see `drop`. And the
+ * library's iOS side is patched (patches/expo-nearby-connections+*.patch) so
+ * advertising and discovery share one peer id and session, which keeps the
+ * id we discover equal to the id that connects and sends.
  */
 
 const STRATEGY = Strategy.P2P_CLUSTER;
@@ -80,6 +88,8 @@ const STRATEGY = Strategy.P2P_CLUSTER;
 const TIE_BREAK_FALLBACK_MS = 4_000;
 /** A connected peer that has not proven its key by then is dropped. */
 const AUTH_TIMEOUT_MS = 10_000;
+/** Native disconnect drops exactly one endpoint. False on iOS; see `drop`. */
+const CAN_DROP_ONE = Platform.OS !== "ios";
 
 /** What the transport asks of the app when a peer wants something from us. */
 export interface HandoffServer {
@@ -286,7 +296,7 @@ export class NearbyTransport implements Transport {
     if (!this.running || typeof peerId !== "string" || !SESSION_ID.test(name)) return;
     if (name === this.session) return;
     this.discovered.set(peerId, name);
-    if (this.peersById.has(peerId)) return;
+    if (this.peersById.has(peerId) || this.hasSession(name)) return;
     // Both phones discover each other; only one should ask, or Nearby may
     // end up with two half-open connections. The lower session id asks, and
     // the other side asks too if nothing has happened after a few seconds.
@@ -294,7 +304,7 @@ export class NearbyTransport implements Transport {
       this.connect(peerId);
     } else {
       this.later(TIE_BREAK_FALLBACK_MS, () => {
-        if (this.running && this.discovered.has(peerId) && !this.peersById.has(peerId)) {
+        if (this.running && this.discovered.has(peerId) && !this.peersById.has(peerId) && !this.hasSession(name)) {
           this.connect(peerId);
         }
       });
@@ -318,7 +328,7 @@ export class NearbyTransport implements Transport {
   private connected(peerId: string, name: string) {
     const session = SESSION_ID.test(name) ? name : this.discovered.get(peerId);
     if (!this.running || !session || session === this.session || this.peersById.size >= LIMITS.maxPeers) {
-      disconnect(peerId).catch(() => {});
+      this.drop(peerId);
       return;
     }
     const nonce = getRandomValues(new Uint8Array(NONCE_BYTES));
@@ -505,7 +515,8 @@ export class NearbyTransport implements Transport {
       // endpoint is stale.
       const stale = this.peersById.get(previous);
       if (stale) stale.key = null;
-      disconnect(previous).catch(() => {});
+      this.drop(previous);
+      this.dropped(previous);
     }
     this.keyToEndpoint.set(k, peer.endpointId);
     this.events.peerReady?.(key);
@@ -601,8 +612,23 @@ export class NearbyTransport implements Transport {
 
   private kick(peer: PeerState, why: string) {
     this.events.error?.("kick", new MeshError(why));
-    disconnect(peer.endpointId).catch(() => {});
+    this.drop(peer.endpointId);
     this.dropped(peer.endpointId);
+  }
+
+  /**
+   * Close one endpoint. On iOS the native call would end every connection and
+   * stop the radio, so there the endpoint is only forgotten: with no state in
+   * `peersById`, everything it sends is ignored and nothing is sent to it.
+   */
+  private drop(endpointId: string) {
+    if (CAN_DROP_ONE) disconnect(endpointId).catch(() => {});
+  }
+
+  /** Already connected to this session (under any endpoint id). */
+  private hasSession(session: string): boolean {
+    for (const p of this.peersById.values()) if (p.session === session) return true;
+    return false;
   }
 
   private later(ms: number, fn: () => void) {
