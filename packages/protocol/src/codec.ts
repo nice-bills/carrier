@@ -32,6 +32,14 @@ export const MAX_HOPS = 2;
  */
 export const MAX_CHAIN = 16;
 
+/**
+ * Longest a note may stay settleable after its epoch starts. Mirrors
+ * MAX_NOTE_LIFETIME_SECONDS in state.rs. A note claiming to expire further out
+ * than this from now can never settle for that long, so carriers refuse it
+ * rather than hold it indefinitely.
+ */
+export const MAX_NOTE_LIFETIME_SECONDS = 30n * 24n * 60n * 60n;
+
 export interface Note {
   pouch: PublicKey;
   to: PublicKey;
@@ -50,6 +58,30 @@ export interface Hop {
   at: bigint;
 }
 
+const U64_MAX = (1n << 64n) - 1n;
+const I64_MIN = -(1n << 63n);
+const I64_MAX = (1n << 63n) - 1n;
+
+/**
+ * Integer writers refuse anything that does not fit the field.
+ *
+ * DataView setters wrap silently, so `expiry + 2^64` or `slotIndex + 256` would
+ * encode — and therefore hash, and therefore verify — exactly like the original.
+ * A value that only verifies because it was truncated is a different value from
+ * the one the rest of the device is acting on, so it is an error, not a number.
+ */
+function checkInt(value: number, min: number, max: number, field: string): void {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+    throw new RangeError(`${field} out of range: ${String(value)}`);
+  }
+}
+
+function checkBig(value: bigint, min: bigint, max: bigint, field: string): void {
+  if (typeof value !== "bigint" || value < min || value > max) {
+    throw new RangeError(`${field} out of range: ${String(value)}`);
+  }
+}
+
 class Writer {
   private readonly parts: Uint8Array[] = [];
 
@@ -63,28 +95,33 @@ class Writer {
   }
 
   u8(value: number): this {
-    return this.bytes(Uint8Array.of(value & 0xff));
+    checkInt(value, 0, 0xff, "u8");
+    return this.bytes(Uint8Array.of(value));
   }
 
   u16(value: number): this {
+    checkInt(value, 0, 0xffff, "u16");
     const buf = new Uint8Array(2);
     new DataView(buf.buffer).setUint16(0, value, true);
     return this.bytes(buf);
   }
 
   u32(value: number): this {
+    checkInt(value, 0, 0xffff_ffff, "u32");
     const buf = new Uint8Array(4);
     new DataView(buf.buffer).setUint32(0, value, true);
     return this.bytes(buf);
   }
 
   u64(value: bigint): this {
+    checkBig(value, 0n, U64_MAX, "u64");
     const buf = new Uint8Array(8);
     new DataView(buf.buffer).setBigUint64(0, value, true);
     return this.bytes(buf);
   }
 
   i64(value: bigint): this {
+    checkBig(value, I64_MIN, I64_MAX, "i64");
     const buf = new Uint8Array(8);
     new DataView(buf.buffer).setBigInt64(0, value, true);
     return this.bytes(buf);

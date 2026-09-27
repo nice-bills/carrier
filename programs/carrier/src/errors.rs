@@ -36,8 +36,10 @@ pub enum CarrierError {
     RelayerAccountsMismatch,
     #[msg("relayer token account owner does not match the hop relayer")]
     RelayerMismatch,
+    #[msg("hop time is before its epoch began or too far in the future")]
+    HopTimeOutOfRange,
 
-    #[msg("relay fee exceeds the note amount")]
+    #[msg("relay fee exceeds the note amount (relay_fee_bps over 10000)")]
     RelayFeeTooHigh,
 
     #[msg("a key appears twice in the transmission chain")]
@@ -51,9 +53,23 @@ pub enum CarrierError {
     NotesNotConflicting,
     #[msg("pouch has no bond remaining to slash")]
     NothingToSlash,
+    #[msg("the first note must be the one that settled in this slot")]
+    NoteNotSettled,
+    #[msg("victim token account is not owned by the losing note's recipient")]
+    VictimMismatch,
+    #[msg("the pouch owner cannot be compensated for their own double spend")]
+    VictimIsOwner,
 
-    #[msg("pouch still has unsettled notes outstanding; wait for expiry before closing")]
+    #[msg("pouch cannot close yet: notes may still settle or a double spend proof may still land")]
     PouchNotDrainable,
+    #[msg("epoch cannot advance yet: notes may still settle or a double spend proof may still land")]
+    EpochStillOpen,
+
+    #[msg("draft note has not expired yet")]
+    DraftNotExpired,
+
+    #[msg("mint has a Token-2022 extension this program does not support")]
+    UnsupportedMintExtension,
 
     #[msg("arithmetic overflow")]
     MathOverflow,

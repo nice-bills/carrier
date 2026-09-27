@@ -3,7 +3,8 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import { hashNote, type Note } from "@carrier/protocol";
 import { CarrierNode } from "./node.js";
-import { encodeOffer, decodeOffer } from "./wire.js";
+import { encodeOffer, decodeOffer, tryDecodeOffer } from "./wire.js";
+import { MeshError } from "./types.js";
 import type { Signer } from "./types.js";
 
 /**
@@ -108,5 +109,63 @@ describe("wire format", () => {
     expect(carried.hops).toHaveLength(2);
     // Three signatures survived: the note, plus two per hop.
     expect(carried.entries).toHaveLength(1 + 2 * 2);
+  });
+});
+
+describe("decoding untrusted offers", () => {
+  function wire() {
+    const sender = new CarrierNode(new TestSigner());
+    const taker = new TestSigner();
+    const bundle = sender.originate(note());
+    return JSON.parse(
+      JSON.stringify(encodeOffer(sender.prepareHandoff(hex(hashNote(bundle.note)), taker.publicKey, NOW))),
+    );
+  }
+
+  it("rejects out-of-range numbers instead of wrapping them", () => {
+    const cases: [string, (w: any) => void][] = [
+      ["slot 256", (w) => (w.note.slotIndex = 256)],
+      ["slot fractional", (w) => (w.note.slotIndex = 1.5)],
+      ["slot as string", (w) => (w.note.slotIndex = "1")],
+      ["negative epoch", (w) => (w.note.epoch = -1)],
+      ["fee above u16", (w) => (w.note.relayFeeBps = 70_000)],
+      ["amount above u64", (w) => (w.note.amount = (1n << 64n).toString())],
+      ["negative amount", (w) => (w.note.amount = "-5")],
+      ["amount not an integer", (w) => (w.note.amount = "1e9")],
+      ["expiry wrapped", (w) => (w.note.expiry = (NOW + (1n << 64n)).toString())],
+      ["hop seq NaN", (w) => (w.hop.seq = null)],
+      ["hop at not a number", (w) => (w.hop.at = "soon")],
+    ];
+    for (const [name, mutate] of cases) {
+      const w = wire();
+      mutate(w);
+      expect(() => decodeOffer(w), name).toThrow(MeshError);
+      expect(tryDecodeOffer(w), name).toBeNull();
+    }
+  });
+
+  it("rejects wrong-length bytes, bad keys and oversized arrays", () => {
+    const cases: [string, (w: any) => void][] = [
+      ["short signature", (w) => (w.giverSignature = btoa("abc"))],
+      ["not base64", (w) => (w.giverSignature = "!!!")],
+      ["bad owner key", (w) => (w.owner = "not-a-key")],
+      ["huge owner string", (w) => (w.owner = "1".repeat(10_000))],
+      ["hops not an array", (w) => (w.hops = {})],
+      ["too many hops", (w) => (w.hops = Array.from({ length: 100 }, () => w.hop))],
+      ["too many entries", (w) => (w.entries = Array.from({ length: 100 }, () => w.entries[0]))],
+      ["entry message not a digest", (w) => (w.entries[0].message = btoa("x"))],
+    ];
+    for (const [name, mutate] of cases) {
+      const w = wire();
+      mutate(w);
+      expect(() => decodeOffer(w), name).toThrow(MeshError);
+    }
+  });
+
+  it("never throws anything but MeshError on junk", () => {
+    for (const junk of [null, undefined, 0, "x", [], {}, { note: null }, { owner: 5, note: {} }]) {
+      expect(() => decodeOffer(junk)).toThrow(MeshError);
+      expect(tryDecodeOffer(junk)).toBeNull();
+    }
   });
 });

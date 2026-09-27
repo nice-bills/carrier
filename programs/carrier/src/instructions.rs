@@ -1,17 +1,27 @@
 use anchor_lang::prelude::*;
-use solana_instructions_sysvar::ID as INSTRUCTIONS_SYSVAR_ID;
+use anchor_spl::token_2022::spl_token_2022::{
+    self,
+    extension::{BaseStateWithExtensions, StateWithExtensions},
+};
 use anchor_spl::token_interface::{
     self, Mint, TokenAccount, TokenInterface, TransferChecked,
 };
+use solana_instructions_sysvar::ID as INSTRUCTIONS_SYSVAR_ID;
 
 use crate::ed25519::{collect_verified_signatures, require_signed};
 use crate::errors::CarrierError;
+use crate::rules::{
+    check_hop_time, mint_extension_allowed, split_payout, split_slash, BPS_DENOMINATOR,
+};
 use crate::state::*;
 
 pub const POUCH_SEED: &[u8] = b"pouch";
 pub const VAULT_SEED: &[u8] = b"vault";
+pub const DRAFT_SEED: &[u8] = b"draft";
+pub const CLAIM_SEED: &[u8] = b"claim";
 
-const BPS_DENOMINATOR: u64 = 10_000;
+// The pouch is about 2 KB (the per-slot fingerprints), so every instruction
+// holds it in a `Box`. On the stack it would crowd the 4 KB SBF frame.
 
 // ---------------------------------------------------------------------------
 // open_pouch
@@ -29,7 +39,7 @@ pub struct OpenPouch<'info> {
         seeds = [POUCH_SEED, owner.key().as_ref(), mint.key().as_ref()],
         bump,
     )]
-    pub pouch: Account<'info, Pouch>,
+    pub pouch: Box<Account<'info, Pouch>>,
 
     #[account(
         init,
@@ -56,6 +66,8 @@ pub struct OpenPouch<'info> {
 /// same vault as the spendable funds but is tracked separately and is never
 /// reachable by `settle_note`.
 pub fn open_pouch(ctx: Context<OpenPouch>, amount: u64, bond: u64) -> Result<()> {
+    check_mint_extensions(&ctx.accounts.mint.to_account_info())?;
+
     let total = amount.checked_add(bond).ok_or(CarrierError::MathOverflow)?;
 
     transfer_tokens(
@@ -68,14 +80,25 @@ pub fn open_pouch(ctx: Context<OpenPouch>, amount: u64, bond: u64) -> Result<()>
         None,
     )?;
 
+    let now = Clock::get()?.unix_timestamp;
     let pouch = &mut ctx.accounts.pouch;
     pouch.owner = ctx.accounts.owner.key();
     pouch.mint = ctx.accounts.mint.key();
     pouch.committed = amount;
     pouch.settled = 0;
     pouch.bond = bond;
-    pouch.epoch = 0;
-    pouch.epoch_started_at = Clock::get()?.unix_timestamp;
+    // The first epoch is the time of opening, not 0.
+    //
+    // The pouch address is the same every time an owner reopens it, so if epochs
+    // restarted at 0, an old settled note (public onchain) and a new honest note
+    // for the same slot would look like a double spend. A pouch can only close
+    // after `slashing_ends_at`, which is more than 37 days after its last epoch
+    // began, and each `advance_epoch` also needs 37 days. So the epoch goes up
+    // by at most one per 37 days, and a reopened pouch starts above any epoch
+    // the old one reached. (The settled-note fingerprints, which start empty,
+    // also block proofs that mix the two.)
+    pouch.epoch = u32::try_from(now).map_err(|_| CarrierError::MathOverflow)?;
+    pouch.epoch_started_at = now;
     pouch.clear_slots();
     pouch.bump = ctx.bumps.pouch;
     pouch.vault_bump = ctx.bumps.vault;
@@ -83,12 +106,29 @@ pub fn open_pouch(ctx: Context<OpenPouch>, amount: u64, bond: u64) -> Result<()>
     Ok(())
 }
 
+/// Refuse Token-2022 mints whose extensions could break the vault's books.
+/// See `rules::mint_extension_allowed`.
+fn check_mint_extensions(mint: &AccountInfo) -> Result<()> {
+    if *mint.owner != spl_token_2022::ID {
+        return Ok(());
+    }
+    let data = mint.try_borrow_data()?;
+    let state = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&data)?;
+    for extension in state.get_extension_types()? {
+        require!(
+            mint_extension_allowed(extension),
+            CarrierError::UnsupportedMintExtension
+        );
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
-// refill_pouch
+// refill_pouch / add_bond
 // ---------------------------------------------------------------------------
 
 #[derive(Accounts)]
-pub struct RefillPouch<'info> {
+pub struct FundPouch<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
@@ -99,7 +139,7 @@ pub struct RefillPouch<'info> {
         has_one = owner,
         has_one = mint,
     )]
-    pub pouch: Account<'info, Pouch>,
+    pub pouch: Box<Account<'info, Pouch>>,
 
     #[account(mut, seeds = [VAULT_SEED, pouch.key().as_ref()], bump = pouch.vault_bump)]
     pub vault: InterfaceAccount<'info, TokenAccount>,
@@ -111,13 +151,36 @@ pub struct RefillPouch<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-/// Add funds and start a new epoch.
-///
-/// Advancing the epoch frees all 256 note slots for reuse. Any note from a
-/// previous epoch becomes permanently unsettleable, which is why the client
-/// must not refill while notes are still in flight. Expiry is the safety net:
-/// wait out the longest expiry you have issued before refilling.
-pub fn refill_pouch(ctx: Context<RefillPouch>, amount: u64) -> Result<()> {
+/// Add spendable funds. The epoch does not change, so notes already handed
+/// over stay settleable.
+pub fn refill_pouch(ctx: Context<FundPouch>, amount: u64) -> Result<()> {
+    fund(&ctx, amount)?;
+    let pouch = &mut ctx.accounts.pouch;
+    pouch.committed = pouch
+        .committed
+        .checked_add(amount)
+        .ok_or(CarrierError::MathOverflow)?;
+    Ok(())
+}
+
+/// Add to the bond, for example after a slash paid some of it out.
+pub fn add_bond(ctx: Context<FundPouch>, amount: u64) -> Result<()> {
+    fund(&ctx, amount)?;
+    let pouch = &mut ctx.accounts.pouch;
+    pouch.bond = pouch
+        .bond
+        .checked_add(amount)
+        .ok_or(CarrierError::MathOverflow)?;
+    emit!(BondAdded {
+        pouch: pouch.key(),
+        amount,
+        bond: pouch.bond,
+    });
+    Ok(())
+}
+
+/// Move `amount` from the owner into the vault.
+fn fund(ctx: &Context<FundPouch>, amount: u64) -> Result<()> {
     transfer_tokens(
         &ctx.accounts.token_program,
         &ctx.accounts.funding,
@@ -126,17 +189,45 @@ pub fn refill_pouch(ctx: Context<RefillPouch>, amount: u64) -> Result<()> {
         ctx.accounts.owner.to_account_info(),
         amount,
         None,
-    )?;
+    )
+}
 
+// ---------------------------------------------------------------------------
+// advance_epoch
+// ---------------------------------------------------------------------------
+
+#[derive(Accounts)]
+pub struct AdvanceEpoch<'info> {
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [POUCH_SEED, owner.key().as_ref(), pouch.mint.as_ref()],
+        bump = pouch.bump,
+        has_one = owner,
+    )]
+    pub pouch: Box<Account<'info, Pouch>>,
+}
+
+/// Start a new epoch and free all 256 slots.
+///
+/// Only once the current epoch is over: no note from it can settle, and the
+/// grace period for double-spend proofs has passed. Before that, bumping the
+/// epoch would void every note the owner has already handed over.
+pub fn advance_epoch(ctx: Context<AdvanceEpoch>) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
     let pouch = &mut ctx.accounts.pouch;
-    pouch.committed = pouch
-        .committed
-        .checked_add(amount)
-        .ok_or(CarrierError::MathOverflow)?;
+    require!(now > pouch.slashing_ends_at(), CarrierError::EpochStillOpen);
+
     pouch.epoch = pouch.epoch.checked_add(1).ok_or(CarrierError::MathOverflow)?;
-    pouch.epoch_started_at = Clock::get()?.unix_timestamp;
+    pouch.epoch_started_at = now;
     pouch.clear_slots();
 
+    emit!(EpochAdvanced {
+        pouch: pouch.key(),
+        epoch: pouch.epoch,
+        started_at: now,
+    });
     Ok(())
 }
 
@@ -146,8 +237,9 @@ pub fn refill_pouch(ctx: Context<RefillPouch>, amount: u64) -> Result<()> {
 
 #[derive(Accounts)]
 pub struct SettleNote<'info> {
-    /// Whoever reconnected first. Pays the transaction fee, earns the remainder
-    /// of the relay fee as a bounty. Does not need to be party to the payment.
+    /// Whoever reconnected first. Pays the transaction fee. Earns nothing from
+    /// the note: relay fee nobody earned stays in the vault. Does not need to
+    /// be party to the payment.
     #[account(mut)]
     pub settler: Signer<'info>,
 
@@ -157,16 +249,13 @@ pub struct SettleNote<'info> {
         bump = pouch.bump,
         has_one = mint,
     )]
-    pub pouch: Account<'info, Pouch>,
+    pub pouch: Box<Account<'info, Pouch>>,
 
     #[account(mut, seeds = [VAULT_SEED, pouch.key().as_ref()], bump = pouch.vault_bump)]
     pub vault: InterfaceAccount<'info, TokenAccount>,
 
     #[account(mut, token::mint = mint)]
     pub recipient: InterfaceAccount<'info, TokenAccount>,
-
-    #[account(mut, token::mint = mint)]
-    pub settler_payout: InterfaceAccount<'info, TokenAccount>,
 
     pub mint: InterfaceAccount<'info, Mint>,
     pub token_program: Interface<'info, TokenInterface>,
@@ -234,40 +323,34 @@ pub fn settle_note<'info>(
     // values. A chain that disagrees with what was signed cannot be expressed:
     // the reconstructed hop simply produces a different digest, and the
     // signature check below fails.
-    let mut hops: Vec<Hop> = Vec::with_capacity(claims.len());
+    let mut relayers: Vec<Pubkey> = Vec::with_capacity(claims.len());
     let mut prev = ctx.accounts.pouch.owner;
     for (i, claim) in claims.iter().enumerate() {
+        check_hop_time(claim.at, ctx.accounts.pouch.epoch_started_at, clock.unix_timestamp)?;
+
         let hop = claim.expand(note_hash, prev, i as u8);
         let payload = hop.signing_payload();
         require_signed(&verified, &hop.relayer, &payload)?;
         require_signed(&verified, &hop.prev, &payload)?;
 
-        let so_far: Vec<Pubkey> = hops.iter().map(|h: &Hop| h.relayer).collect();
-        check_carrier_eligible(
-            &hop.relayer,
-            &so_far,
-            &note,
-            &ctx.accounts.pouch.owner,
-        )?;
+        check_carrier_eligible(&hop.relayer, &relayers, &note, &ctx.accounts.pouch.owner)?;
 
         prev = hop.relayer;
-        hops.push(hop);
+        relayers.push(hop.relayer);
     }
-
-    let relayers: Vec<Pubkey> = hops.iter().map(|h| h.relayer).collect();
 
     pay_out_and_commit(
         Payout {
             token_program: &ctx.accounts.token_program,
             vault: &ctx.accounts.vault,
             recipient: &ctx.accounts.recipient,
-            settler_payout: &ctx.accounts.settler_payout,
             mint: &ctx.accounts.mint,
             pouch_account: ctx.accounts.pouch.to_account_info(),
             relayer_accounts: ctx.remaining_accounts,
         },
         &mut ctx.accounts.pouch,
         &note,
+        note_hash,
         &relayers,
         ctx.accounts.settler.key(),
     )
@@ -278,7 +361,10 @@ pub fn settle_note<'info>(
 // ---------------------------------------------------------------------------
 
 #[derive(Accounts)]
+#[instruction(note_a: Note, note_b: Note)]
 pub struct ProveDoubleSpend<'info> {
+    /// Anyone. Pays the claim record's rent and gets a tenth of the loss, if
+    /// bond is left after the victim.
     #[account(mut)]
     pub prover: Signer<'info>,
 
@@ -288,36 +374,59 @@ pub struct ProveDoubleSpend<'info> {
         bump = pouch.bump,
         has_one = mint,
     )]
-    pub pouch: Account<'info, Pouch>,
+    pub pouch: Box<Account<'info, Pouch>>,
 
     #[account(mut, seeds = [VAULT_SEED, pouch.key().as_ref()], bump = pouch.vault_bump)]
     pub vault: InterfaceAccount<'info, TokenAccount>,
 
-    /// Holder of the note that lost the race. Made whole from the bond.
+    /// A token account of the losing note's recipient. Checked in the handler.
     #[account(mut, token::mint = mint)]
     pub victim: InterfaceAccount<'info, TokenAccount>,
 
-    #[account(mut, token::mint = mint)]
+    /// Where the prover's cut goes. May be the victim's own account, since the
+    /// victim is often the one who proves; `dup` lets Anchor accept that.
+    #[account(mut, dup, token::mint = mint)]
     pub prover_payout: InterfaceAccount<'info, TokenAccount>,
+
+    /// One per losing note. `init` fails if it exists, so a note is paid once.
+    #[account(
+        init,
+        payer = prover,
+        space = 8 + DoubleSpendClaim::INIT_SPACE,
+        seeds = [CLAIM_SEED, pouch.key().as_ref(), note_b.hash().as_ref()],
+        bump,
+    )]
+    pub claim: Account<'info, DoubleSpendClaim>,
 
     pub mint: InterfaceAccount<'info, Mint>,
     pub token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
 
     /// CHECK: address-constrained to the instructions sysvar.
     #[account(address = INSTRUCTIONS_SYSVAR_ID)]
     pub instructions: UncheckedAccount<'info>,
 }
 
-/// Two validly-signed notes against the same slot are proof the sender cheated.
+/// Compensate the holder of a note that lost its slot to another note.
 ///
-/// The program verifies both signatures itself. There is no oracle and no
-/// trusted reporter — anyone holding the losing note can bring this, and the
-/// bond pays out.
+/// `note_a` is the note that settled. `note_b` is the one that lost. Both must
+/// be signed by the owner for the same slot of the current epoch, and the pouch
+/// must record `note_a` as the note that took the slot. That last check is what
+/// stops anyone from slashing with two notes where neither settled, or with a
+/// note from before the pouch was reopened.
+///
+/// The money goes to `note_b`'s recipient, whoever sends the proof. The
+/// cheating owner can no longer take their own bond back by proving first.
+///
+/// We do not also require `note_b`'s fingerprint to differ from `note_a`'s.
+/// Only the owner can make two notes share one, and if they did, that check
+/// would let them make the losing note unclaimable.
 pub fn prove_double_spend(
     ctx: Context<ProveDoubleSpend>,
     note_a: Note,
     note_b: Note,
 ) -> Result<()> {
+    let pouch_key = ctx.accounts.pouch.key();
     let hash_a = note_a.hash();
     let hash_b = note_b.hash();
     require!(hash_a != hash_b, CarrierError::NotesIdentical);
@@ -328,7 +437,19 @@ pub fn prove_double_spend(
             && note_a.slot_index == note_b.slot_index,
         CarrierError::NotesNotConflicting
     );
-    require_keys_eq!(note_a.pouch, ctx.accounts.pouch.key(), CarrierError::NotesNotConflicting);
+    require_keys_eq!(note_a.pouch, pouch_key, CarrierError::NotesNotConflicting);
+    require!(note_b.epoch == ctx.accounts.pouch.epoch, CarrierError::EpochMismatch);
+    require!(
+        ctx.accounts.pouch.settled_with(note_a.slot_index, &hash_a),
+        CarrierError::NoteNotSettled
+    );
+
+    require!(note_b.to != ctx.accounts.pouch.owner, CarrierError::VictimIsOwner);
+    require_keys_eq!(
+        ctx.accounts.victim.owner,
+        note_b.to,
+        CarrierError::VictimMismatch
+    );
 
     let verified = collect_verified_signatures(&ctx.accounts.instructions)?;
     require_signed(&verified, &ctx.accounts.pouch.owner, &note_a.signing_payload())?;
@@ -336,11 +457,7 @@ pub fn prove_double_spend(
 
     let bond = ctx.accounts.pouch.bond;
     require!(bond > 0, CarrierError::NothingToSlash);
-
-    // The victim is made whole first; the prover takes a tenth for doing the
-    // work of bringing the proof onchain.
-    let prover_cut = bond / 10;
-    let victim_cut = bond.checked_sub(prover_cut).ok_or(CarrierError::MathOverflow)?;
+    let slash = split_slash(bond, note_b.amount);
 
     let pouch_owner = ctx.accounts.pouch.owner;
     let pouch_mint = ctx.accounts.pouch.mint;
@@ -358,32 +475,35 @@ pub fn prove_double_spend(
         &ctx.accounts.victim,
         &ctx.accounts.mint,
         ctx.accounts.pouch.to_account_info(),
-        victim_cut,
+        slash.to_victim,
+        Some(signer_seeds),
+    )?;
+    transfer_tokens(
+        &ctx.accounts.token_program,
+        &ctx.accounts.vault,
+        &ctx.accounts.prover_payout,
+        &ctx.accounts.mint,
+        ctx.accounts.pouch.to_account_info(),
+        slash.to_prover,
         Some(signer_seeds),
     )?;
 
-    if prover_cut > 0 {
-        transfer_tokens(
-            &ctx.accounts.token_program,
-            &ctx.accounts.vault,
-            &ctx.accounts.prover_payout,
-            &ctx.accounts.mint,
-            ctx.accounts.pouch.to_account_info(),
-            prover_cut,
-            Some(signer_seeds),
-        )?;
-    }
+    ctx.accounts.pouch.bond = slash.bond_left;
 
-    let pouch = &mut ctx.accounts.pouch;
-    pouch.bond = 0;
+    let claim = &mut ctx.accounts.claim;
+    claim.victim = note_b.to;
+    claim.paid = slash.to_victim;
 
     emit!(DoubleSpendProven {
-        pouch: pouch.key(),
+        pouch: pouch_key,
         slot_index: note_a.slot_index,
         epoch: note_a.epoch,
         note_a: hash_a,
         note_b: hash_b,
-        slashed: bond,
+        victim: note_b.to,
+        paid_victim: slash.to_victim,
+        paid_prover: slash.to_prover,
+        bond_left: slash.bond_left,
         prover: ctx.accounts.prover.key(),
     });
 
@@ -407,7 +527,7 @@ pub struct ClosePouch<'info> {
         has_one = mint,
         close = owner,
     )]
-    pub pouch: Account<'info, Pouch>,
+    pub pouch: Box<Account<'info, Pouch>>,
 
     #[account(mut, seeds = [VAULT_SEED, pouch.key().as_ref()], bump = pouch.vault_bump)]
     pub vault: InterfaceAccount<'info, TokenAccount>,
@@ -419,7 +539,7 @@ pub struct ClosePouch<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-/// Recover everything left in the pouch once the epoch can no longer settle.
+/// Recover everything left in the pouch once the epoch is over.
 ///
 /// Without this, committed funds are locked forever — the vault has to stay
 /// solvent for any note still in someone's pocket, and nothing ever told it when
@@ -427,12 +547,14 @@ pub struct ClosePouch<'info> {
 /// `settle_note` refuses notes expiring past `epoch_closes_at`, so once that
 /// instant passes the remaining balance is provably unclaimable by anyone else.
 ///
-/// This returns the unspent balance *and* the bond. A bond that was already
-/// slashed is zero by then, so a cheat cannot be undone by closing.
+/// It then waits `SLASH_GRACE_SECONDS` more, so a victim who found out late
+/// can still prove a double spend against the bond before it leaves.
+///
+/// This returns the unspent balance *and* whatever bond is left.
 pub fn close_pouch(ctx: Context<ClosePouch>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     require!(
-        now > ctx.accounts.pouch.epoch_closes_at(),
+        now > ctx.accounts.pouch.slashing_ends_at(),
         CarrierError::PouchNotDrainable
     );
 
@@ -447,8 +569,8 @@ pub fn close_pouch(ctx: Context<ClosePouch>) -> Result<()> {
     ]];
 
     // Drain whatever is actually in the vault rather than a computed figure, so
-    // rounding dust from relay-fee splits leaves with the owner instead of being
-    // stranded in a closed account.
+    // relay fee nobody earned leaves with the owner instead of being stranded
+    // in a closed account.
     let remaining = ctx.accounts.vault.amount;
     transfer_tokens(
         &ctx.accounts.token_program,
@@ -484,7 +606,6 @@ pub fn close_pouch(ctx: Context<ClosePouch>) -> Result<()> {
 // helpers
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
 fn transfer_tokens<'info>(
     token_program: &Interface<'info, TokenInterface>,
     from: &InterfaceAccount<'info, TokenAccount>,
@@ -512,7 +633,6 @@ fn transfer_tokens<'info>(
 
     token_interface::transfer_checked(cpi, amount, mint.decimals)
 }
-
 
 /// Reject a carrier that has no business being paid for this note.
 ///
@@ -551,8 +671,6 @@ fn check_carrier_eligible(
 // shared payout
 // ---------------------------------------------------------------------------
 
-pub const DRAFT_SEED: &[u8] = b"draft";
-
 /// The accounts a payout touches, independent of which instruction is paying.
 ///
 /// Both settlement paths end identically — the difference is only in how the
@@ -562,7 +680,6 @@ struct Payout<'a, 'info> {
     token_program: &'a Interface<'info, TokenInterface>,
     vault: &'a InterfaceAccount<'info, TokenAccount>,
     recipient: &'a InterfaceAccount<'info, TokenAccount>,
-    settler_payout: &'a InterfaceAccount<'info, TokenAccount>,
     mint: &'a InterfaceAccount<'info, Mint>,
     pouch_account: AccountInfo<'info>,
     /// One token account per relayer, in lineage order. Borrowed for `'info`
@@ -572,10 +689,15 @@ struct Payout<'a, 'info> {
 }
 
 /// Pay the recipient and everyone who carried the note, then mark the slot.
+///
+/// Relay fee nobody earned (all of it with no hops, plus rounding dust) stays
+/// in the vault. `settled` grows only by what left, so that part stays in
+/// `available()` for the owner's next notes and returns on `close_pouch`.
 fn pay_out_and_commit<'info>(
     accounts: Payout<'_, 'info>,
     pouch: &mut Account<'info, Pouch>,
     note: &Note,
+    note_hash: [u8; 32],
     relayers: &[Pubkey],
     settled_by: Pubkey,
 ) -> Result<()> {
@@ -584,30 +706,7 @@ fn pay_out_and_commit<'info>(
         CarrierError::RelayerAccountsMismatch
     );
 
-    let relay_fee = (note.amount as u128)
-        .checked_mul(note.relay_fee_bps as u128)
-        .ok_or(CarrierError::MathOverflow)?
-        .checked_div(BPS_DENOMINATOR as u128)
-        .ok_or(CarrierError::MathOverflow)? as u64;
-    require!(relay_fee <= note.amount, CarrierError::RelayFeeTooHigh);
-
-    let to_recipient = note
-        .amount
-        .checked_sub(relay_fee)
-        .ok_or(CarrierError::MathOverflow)?;
-    let per_relayer = if relayers.is_empty() {
-        0
-    } else {
-        relay_fee / relayers.len() as u64
-    };
-    let relayers_total = per_relayer
-        .checked_mul(relayers.len() as u64)
-        .ok_or(CarrierError::MathOverflow)?;
-    // Rounding dust, plus the whole fee when nobody relayed, goes to whoever
-    // paid the transaction fee to bring this onchain.
-    let settler_bounty = relay_fee
-        .checked_sub(relayers_total)
-        .ok_or(CarrierError::MathOverflow)?;
+    let split = split_payout(note.amount, note.relay_fee_bps, relayers.len())?;
 
     let pouch_key = pouch.key();
     let pouch_owner = pouch.owner;
@@ -626,7 +725,7 @@ fn pay_out_and_commit<'info>(
         accounts.recipient,
         accounts.mint,
         accounts.pouch_account.clone(),
-        to_recipient,
+        split.to_recipient,
         Some(signer_seeds),
     )?;
 
@@ -638,47 +737,34 @@ fn pay_out_and_commit<'info>(
         require_keys_eq!(parsed.owner, *relayer, CarrierError::RelayerMismatch);
         require_keys_eq!(parsed.mint, pouch_mint, CarrierError::RelayerMismatch);
 
-        if per_relayer > 0 {
-            transfer_tokens(
-                accounts.token_program,
-                accounts.vault,
-                &parsed,
-                accounts.mint,
-                accounts.pouch_account.clone(),
-                per_relayer,
-                Some(signer_seeds),
-            )?;
-        }
-        lineage.push(*relayer);
-    }
-
-    if settler_bounty > 0 {
         transfer_tokens(
             accounts.token_program,
             accounts.vault,
-            accounts.settler_payout,
+            &parsed,
             accounts.mint,
             accounts.pouch_account.clone(),
-            settler_bounty,
+            split.per_relayer,
             Some(signer_seeds),
         )?;
+        lineage.push(*relayer);
     }
 
-    pouch.mark_slot_spent(note.slot_index);
+    pouch.record_settled(note.slot_index, &note_hash);
     pouch.settled = pouch
         .settled
-        .checked_add(note.amount)
+        .checked_add(split.paid_out)
         .ok_or(CarrierError::MathOverflow)?;
 
     emit!(NoteSettled {
         pouch: pouch_key,
-        note_hash: note.hash(),
+        note_hash,
         to: note.to,
         amount: note.amount,
         slot_index: note.slot_index,
         epoch: note.epoch,
         lineage,
-        relay_fee_paid: relay_fee,
+        relay_fee_paid: split.to_relayers,
+        relay_fee_kept: split.kept,
         settled_by,
     });
 
@@ -694,6 +780,11 @@ fn pay_out_and_commit<'info>(
 // three instructions accumulate the same verification across several
 // transactions into a draft account, so chain length stops being bounded by
 // what fits in a packet.
+//
+// A draft's address is `["draft", pouch, note_hash, settler]`. The note hash
+// means a second note for the same slot cannot take the first one's draft. The
+// settler means nobody can sit on a note's only draft: anyone else holding the
+// note opens their own, and whichever finalizes first takes the slot.
 
 #[derive(Accounts)]
 #[instruction(note: Note)]
@@ -705,13 +796,18 @@ pub struct BeginSettlement<'info> {
         seeds = [POUCH_SEED, pouch.owner.as_ref(), pouch.mint.as_ref()],
         bump = pouch.bump,
     )]
-    pub pouch: Account<'info, Pouch>,
+    pub pouch: Box<Account<'info, Pouch>>,
 
     #[account(
         init,
         payer = settler,
         space = 8 + SettlementDraft::INIT_SPACE,
-        seeds = [DRAFT_SEED, pouch.key().as_ref(), &[note.slot_index], &note.epoch.to_le_bytes()],
+        seeds = [
+            DRAFT_SEED,
+            pouch.key().as_ref(),
+            note.hash().as_ref(),
+            settler.key().as_ref(),
+        ],
         bump,
     )]
     pub draft: Account<'info, SettlementDraft>,
@@ -724,10 +820,6 @@ pub struct BeginSettlement<'info> {
 }
 
 /// Open a draft by proving the sender authorised this note.
-///
-/// Seeded by pouch, slot and epoch rather than by note hash: two different notes
-/// against the same slot are exactly the double-spend case, and this way the
-/// second one cannot open a competing draft.
 pub fn begin_settlement(ctx: Context<BeginSettlement>, note: Note) -> Result<()> {
     let clock = Clock::get()?;
     let pouch = &ctx.accounts.pouch;
@@ -743,6 +835,11 @@ pub fn begin_settlement(ctx: Context<BeginSettlement>, note: Note) -> Result<()>
         !pouch.is_slot_spent(note.slot_index),
         CarrierError::SlotAlreadySpent
     );
+    // Fail now rather than after every hop has been paid for.
+    require!(
+        u64::from(note.relay_fee_bps) <= BPS_DENOMINATOR,
+        CarrierError::RelayFeeTooHigh
+    );
 
     let verified = collect_verified_signatures(&ctx.accounts.instructions)?;
     require_signed(&verified, &pouch.owner, &note.signing_payload())?;
@@ -754,6 +851,7 @@ pub fn begin_settlement(ctx: Context<BeginSettlement>, note: Note) -> Result<()>
     draft.pouch = pouch.key();
     draft.owner = pouch.owner;
     draft.settler = ctx.accounts.settler.key();
+    draft.epoch_started_at = pouch.epoch_started_at;
     draft.next_seq = 0;
     draft.last_carrier = pouch.owner;
     draft.lineage = Vec::new();
@@ -778,8 +876,8 @@ pub struct ExtendSettlement<'info> {
         seeds = [
             DRAFT_SEED,
             draft.pouch.as_ref(),
-            &[draft.note.slot_index],
-            &draft.note.epoch.to_le_bytes(),
+            draft.note_hash.as_ref(),
+            draft.settler.as_ref(),
         ],
         bump = draft.bump,
         has_one = settler,
@@ -800,6 +898,7 @@ pub fn extend_settlement(
     ctx: Context<ExtendSettlement>,
     claims: Vec<HopClaim>,
 ) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
     let verified = collect_verified_signatures(&ctx.accounts.instructions)?;
     let draft = &mut ctx.accounts.draft;
 
@@ -809,6 +908,8 @@ pub fn extend_settlement(
     );
 
     for claim in claims.iter() {
+        check_hop_time(claim.at, draft.epoch_started_at, now)?;
+
         let hop = claim.expand(draft.note_hash, draft.last_carrier, draft.next_seq);
         let payload = hop.signing_payload();
         require_signed(&verified, &hop.relayer, &payload)?;
@@ -844,15 +945,15 @@ pub struct FinalizeSettlement<'info> {
         bump = pouch.bump,
         has_one = mint,
     )]
-    pub pouch: Account<'info, Pouch>,
+    pub pouch: Box<Account<'info, Pouch>>,
 
     #[account(
         mut,
         seeds = [
             DRAFT_SEED,
             draft.pouch.as_ref(),
-            &[draft.note.slot_index],
-            &draft.note.epoch.to_le_bytes(),
+            draft.note_hash.as_ref(),
+            draft.settler.as_ref(),
         ],
         bump = draft.bump,
         has_one = settler,
@@ -867,9 +968,6 @@ pub struct FinalizeSettlement<'info> {
     #[account(mut, token::mint = mint)]
     pub recipient: InterfaceAccount<'info, TokenAccount>,
 
-    #[account(mut, token::mint = mint)]
-    pub settler_payout: InterfaceAccount<'info, TokenAccount>,
-
     pub mint: InterfaceAccount<'info, Mint>,
     pub token_program: Interface<'info, TokenInterface>,
     // remaining_accounts: one token account per relayer, in lineage order.
@@ -881,6 +979,7 @@ pub fn finalize_settlement<'info>(
 ) -> Result<()> {
     let clock = Clock::get()?;
     let note = ctx.accounts.draft.note.clone();
+    let note_hash = ctx.accounts.draft.note_hash;
     let relayers = ctx.accounts.draft.lineage.clone();
 
     require_keys_eq!(
@@ -891,8 +990,8 @@ pub fn finalize_settlement<'info>(
     require!(note.epoch == ctx.accounts.pouch.epoch, CarrierError::EpochMismatch);
     require!(clock.unix_timestamp <= note.expiry, CarrierError::NoteExpired);
     // Re-checked here, not just at begin: a draft can sit open across many
-    // transactions and the single-transaction path could have taken the slot in
-    // the meantime.
+    // transactions, and another draft or the single-transaction path could
+    // have taken the slot in the meantime.
     require!(
         !ctx.accounts.pouch.is_slot_spent(note.slot_index),
         CarrierError::SlotAlreadySpent
@@ -912,13 +1011,13 @@ pub fn finalize_settlement<'info>(
             token_program: &ctx.accounts.token_program,
             vault: &ctx.accounts.vault,
             recipient: &ctx.accounts.recipient,
-            settler_payout: &ctx.accounts.settler_payout,
             mint: &ctx.accounts.mint,
             pouch_account: ctx.accounts.pouch.to_account_info(),
             relayer_accounts: ctx.remaining_accounts,
         },
         &mut ctx.accounts.pouch,
         &note,
+        note_hash,
         &relayers,
         ctx.accounts.settler.key(),
     )
@@ -934,8 +1033,8 @@ pub struct AbandonSettlement<'info> {
         seeds = [
             DRAFT_SEED,
             draft.pouch.as_ref(),
-            &[draft.note.slot_index],
-            &draft.note.epoch.to_le_bytes(),
+            draft.note_hash.as_ref(),
+            draft.settler.as_ref(),
         ],
         bump = draft.bump,
         has_one = settler,
@@ -945,10 +1044,40 @@ pub struct AbandonSettlement<'info> {
 }
 
 /// Give up on a draft and reclaim its rent.
-///
-/// Without this, a settler who starts a chain and cannot finish it — the note
-/// expires, a hop turns out to be unsigned — loses the rent and leaves an
-/// account that blocks any future attempt on that slot.
 pub fn abandon_settlement(_ctx: Context<AbandonSettlement>) -> Result<()> {
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct CloseExpiredDraft<'info> {
+    #[account(
+        mut,
+        seeds = [
+            DRAFT_SEED,
+            draft.pouch.as_ref(),
+            draft.note_hash.as_ref(),
+            draft.settler.as_ref(),
+        ],
+        bump = draft.bump,
+        has_one = settler,
+        close = settler,
+    )]
+    pub draft: Account<'info, SettlementDraft>,
+
+    /// CHECK: only receives the draft's rent; `has_one` pins it to the draft's
+    /// settler.
+    #[account(mut)]
+    pub settler: UncheckedAccount<'info>,
+}
+
+/// Close a draft whose note has expired. Anyone may call it; the rent goes back
+/// to the settler who opened it. An expired note can never finalize, so this
+/// only clears an account that can no longer do anything.
+pub fn close_expired_draft(ctx: Context<CloseExpiredDraft>) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    require!(
+        now > ctx.accounts.draft.note.expiry,
+        CarrierError::DraftNotExpired
+    );
     Ok(())
 }

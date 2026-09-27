@@ -47,6 +47,18 @@ export interface Infection {
 export class EncounterHistory {
   private readonly pairs = new Map<string, number>();
   private readonly partners = new Map<string, Set<string>>();
+  private readonly seedKeys: Set<string>;
+  private changes = 0;
+
+  /**
+   * `seeds` are the keys standing is anchored to: keys that cost something to
+   * hold, such as a bonded pouch or independent settlement history. Without
+   * seeds nobody has standing, because nothing distinguishes a real person from
+   * a key generated a second ago.
+   */
+  constructor(seeds: Iterable<string> = []) {
+    this.seedKeys = new Set(seeds);
+  }
 
   private static pairKey(a: string, b: string): string {
     // Unordered: meeting is symmetric, and treating A→B and B→A as different
@@ -66,6 +78,7 @@ export class EncounterHistory {
       set.add(y!);
       this.partners.set(x!, set);
     }
+    this.changes += 1;
   }
 
   /** Absorb a whole settled chain. */
@@ -75,19 +88,52 @@ export class EncounterHistory {
     }
   }
 
+  /** Mark a key as a trust anchor (bonded, or with independent history). */
+  addSeed(key: string): void {
+    if (!this.seedKeys.has(key)) {
+      this.seedKeys.add(key);
+      this.changes += 1;
+    }
+  }
+
+  isSeed(key: string): boolean {
+    return this.seedKeys.has(key);
+  }
+
+  get seeds(): ReadonlySet<string> {
+    return this.seedKeys;
+  }
+
   timesMet(a: string, b: string): number {
     return this.pairs.get(EncounterHistory.pairKey(a, b)) ?? 0;
   }
 
-  /** How many different people this key is known to have met. */
+  /** How many different keys this key is known to have met. */
   distinctPartners(key: string): number {
     return this.partners.get(key)?.size ?? 0;
+  }
+
+  /** The distinct keys this key is known to have met. */
+  partnersOf(key: string): ReadonlySet<string> {
+    return this.partners.get(key) ?? EMPTY;
+  }
+
+  /** Every key that has met anyone. */
+  keys(): IterableIterator<string> {
+    return this.partners.keys();
+  }
+
+  /** Bumps whenever the record changes, so derived values can be cached. */
+  get version(): number {
+    return this.changes;
   }
 
   get population(): number {
     return this.partners.size;
   }
 }
+
+const EMPTY: ReadonlySet<string> = new Set();
 
 export const keyOf = (k: PublicKey | string): string =>
   typeof k === "string" ? k : k.toBase58();

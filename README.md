@@ -5,7 +5,8 @@
 Carrier is a payment network that does not need the internet to move money. A
 payment is signed offline, handed phone-to-phone over Bluetooth, carried by
 whoever happens to be walking the right way, and settled on Solana by the first
-device in the chain that finds connectivity. Everyone who carried it gets paid.
+device in the chain that finds connectivity. Everyone in the chain it settles
+with shares a relay fee the sender set.
 
 You do not join Carrier by connecting to an RPC. You catch it from someone
 standing near you.
@@ -25,9 +26,11 @@ quietly pretend otherwise.
 
 Carrier pays relayers out of the note at settlement, which makes forwarding a
 stranger's payment profitable — that is the whole reason the mesh has carriers.
-And it does not claim to have solved double-spend. It **bounds** the exposure to
-a number that is committed onchain in advance, **detects** cheating with a proof
-anyone can submit, and **compensates** the victim from a slashable bond.
+Whoever settles gets nothing extra, so there is no reason to drop hops for a
+bounty. And it does not claim to have solved double-spend. It **bounds** the
+exposure to a number that is committed onchain in advance, **detects** cheating
+with a proof anyone can submit, and **compensates** the victim from a slashable
+bond, as far as the bond goes.
 
 Per-hop receipts only became economical once compressed state made them cost
 approximately nothing. That is what changed, and it is why this is buildable now
@@ -44,8 +47,9 @@ Three objects. One onchain, two in people's pockets.
 | **Hop** | One device-to-device handoff, co-signed by **both** phones. The chain of hops is the transmission lineage. |
 
 A note diffuses rather than routes: the recipient need not be present, online, or
-known to the carrier. When any carrier reconnects, the whole bundle settles at
-once and the lineage is emitted — which is what the spread map draws.
+known to the carrier. When any carrier reconnects, the note settles and the
+lineage is emitted — which is what the spread map draws. Up to two hops settle
+in one transaction; longer chains, up to 16 hops, settle across a few.
 
 Hops are co-signed rather than GPS-stamped on purpose. GPS is self-reported and
 spoofable with commodity hardware; two independent keys attesting to the same
@@ -62,8 +66,14 @@ valid. One settles; the other fails.
   256 notes per epoch. Both numbers are onchain.
 - **Detected** — `prove_double_spend` takes the two conflicting notes and
   verifies both signatures in-program. No oracle, no trusted reporter.
-- **Compensated** — the bond is slashed; the holder of the losing note is made
-  whole, and the prover takes a cut for bringing it.
+- **Compensated** — the holder of the losing note is paid from the bond, up to
+  their note's amount, and the prover gets a tenth of that if bond is left.
+  Each losing note is paid once. The bond is first come, first served, so it
+  may not cover everyone; the owner can top it up.
+
+Notes live at most 30 days. Seven days after that, the owner can start a new
+epoch or close the pouch and take back what is left. Not before, so notes
+already handed over cannot be cancelled.
 
 On hardware with a secure element the slot map lives inside the enclave and the
 signing key never leaves it, so forging the second note means defeating the
@@ -76,8 +86,10 @@ not eliminate it, and we don't say it does.
 programs/carrier/       Anchor program — pouches, settlement, slashing
   src/state.rs          Pouch, Note, Hop; wire format and hashing
   src/ed25519.rs        Precompile introspection for offline signatures
-  src/instructions.rs   open_pouch, refill_pouch, settle_note, close_pouch,
-                        prove_double_spend
+  src/instructions.rs   open_pouch, refill_pouch, add_bond, advance_epoch,
+                        settle_note, the draft path, prove_double_spend,
+                        close_pouch
+  src/rules.rs          Fee split, slash split, hop-time and mint checks
 packages/protocol/      Shared TypeScript: wire codec + multi-sig ed25519 builder
 app/                    Expo / React Native client with the BLE mesh
 docs/PROTOCOL.md        Design document
@@ -85,8 +97,12 @@ docs/PROTOCOL.md        Design document
 
 ## Status
 
-Early. The program compiles and the protocol is specified; the mesh client is in
-progress. Nothing here is audited and it is not handling anyone's real money yet.
+Early. The program builds, and its settlement suite runs against a local
+validator.
+The phone app cannot make a payment yet. A first review found real problems,
+which are being fixed; it is not handling anyone's real money, and should not.
+What the protocol does not protect against is listed in
+[docs/PROTOCOL.md](docs/PROTOCOL.md#what-this-does-not-protect-against).
 
 ## Provenance
 
@@ -100,8 +116,8 @@ built when. So, precisely:
 - **Before the hackathon** — protocol design, the Anchor program, the shared
   wire codec, and the BLE transport layer. Commit history is the record; nothing
   is backdated.
-- **During the hackathon** — everything from the kickoff commit onward, tagged
-  `hackathon-start`.
+- **During the hackathon** — everything from the kickoff commit onward. That
+  commit will be tagged `hackathon-start`; the tag does not exist yet.
 
 ## Licence
 

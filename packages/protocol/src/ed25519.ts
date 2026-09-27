@@ -10,9 +10,10 @@ import {
  *
  * `Ed25519Program.createInstructionWithPublicKey` packs exactly one signature
  * per instruction. Settling a note needs the sender's signature plus two
- * co-signatures per hop — up to 17 signatures for a full 8-hop chain. As
- * separate instructions that blows the transaction size limit and forces the
- * program to scan 17 instructions. One instruction with 17 entries is both
+ * co-signatures per hop — 1 + 2 × hops signatures (5 for the MAX_HOPS = 2 chain
+ * that fits one transaction; the draft path verifies longer chains in batches).
+ * As separate instructions that costs more bytes and forces the program to scan
+ * one instruction per signature. One instruction with many entries is both
  * smaller and cheaper to introspect.
  *
  * Data layout (see solana_sdk::ed25519_instruction):
@@ -79,6 +80,12 @@ export function createEd25519Instruction(
     entries.length * (PUBKEY_LEN + SIGNATURE_LEN) +
     [...uniqueMessages.values()].reduce((n, m) => n + m.length, 0);
 
+  if (blobsStart + blobsSize > 0xffff) {
+    throw new RangeError(
+      `ed25519 instruction data would be ${blobsStart + blobsSize} bytes; offsets are 16-bit`,
+    );
+  }
+
   const data = new Uint8Array(blobsStart + blobsSize);
   const view = new DataView(data.buffer);
 
@@ -106,6 +113,11 @@ export function createEd25519Instruction(
 
     let cursor = HEADER_LEN + i * OFFSETS_LEN;
     const putU16 = (value: number) => {
+      // Offsets and sizes are u16 in the precompile layout. DataView would wrap
+      // a larger value silently and point the entry at the wrong bytes.
+      if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
+        throw new RangeError(`ed25519 offset/size ${value} does not fit in 16 bits`);
+      }
       view.setUint16(cursor, value, true);
       cursor += 2;
     };

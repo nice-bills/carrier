@@ -3,7 +3,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import { hashNote, type Note } from "@carrier/protocol";
 import { CarrierNode, contact } from "./node.js";
-import { frame, reassemble, MTU } from "./transport.js";
+import { frame, reassemble, parse, Reassembler, MAX_FRAMES, MTU } from "./transport.js";
 import type { Signer } from "./types.js";
 
 /**
@@ -162,5 +162,85 @@ describe("framing", () => {
     const frames = frame("abcd", body);
     expect(frames).toHaveLength(1);
     expect(reassemble(frames)).toEqual(body);
+  });
+});
+
+describe("framing from strangers", () => {
+  const payload = new Uint8Array(4);
+
+  it("never throws on junk frames", () => {
+    const junk: unknown[] = [
+      null,
+      undefined,
+      7,
+      "frame",
+      {},
+      { digest: "a", index: -1, total: 1, payload },
+      { digest: "a", index: Number.NaN, total: 1, payload },
+      { digest: "a", index: 0, total: Number.NaN, payload },
+      { digest: "a", index: 0.5, total: 2, payload },
+      { digest: "a", index: 0, total: -1, payload },
+      { digest: "a", index: 0, total: 1, payload: [1, 2, 3] },
+      { digest: "a", index: 0, total: 1, payload: new Uint8Array(MTU + 1) },
+      { digest: 5, index: 0, total: 1, payload },
+    ];
+    expect(() => reassemble(junk)).not.toThrow();
+    expect(reassemble(junk)).toBeNull();
+    for (const j of junk) expect(reassemble([j])).toBeNull();
+    expect(reassemble(null as never)).toBeNull();
+
+    const r = new Reassembler();
+    for (const j of junk) expect(r.push(j)).toBeNull();
+    expect(r.size).toBe(0);
+  });
+
+  it("rejects n = 2^28 without allocating for it", () => {
+    const huge = { digest: "a", index: 0, total: 2 ** 28, payload };
+    const before = process.memoryUsage().heapUsed;
+    expect(reassemble([huge])).toBeNull();
+    expect(new Reassembler().push(huge)).toBeNull();
+    expect(reassemble([{ ...huge, total: MAX_FRAMES + 1 }])).toBeNull();
+    // A 2^28-slot array alone would be over a gigabyte.
+    expect(process.memoryUsage().heapUsed - before).toBeLessThan(50 * 1024 * 1024);
+  });
+
+  it("keeps transfers apart by digest", () => {
+    const one = new Uint8Array(MTU + 10).fill(1);
+    const two = new Uint8Array(MTU + 10).fill(2);
+    const mixed = [...frame("one", one), ...frame("two", two)];
+    expect(reassemble(mixed, "one")).toEqual(one);
+    expect(reassemble(mixed, "two")).toEqual(two);
+    // Without a digest, the first well-formed frame's transfer is the one read.
+    expect(reassemble([null, ...mixed])).toEqual(one);
+    // Two transfers claiming one digest with different sizes read as nothing.
+    const clash = [...frame("x", one), { digest: "x", index: 0, total: 5, payload }];
+    expect(reassemble(clash)).toBeNull();
+  });
+
+  it("refuses to frame a body larger than MAX_FRAMES frames", () => {
+    expect(() => frame("big", new Uint8Array(MTU * MAX_FRAMES + 1))).toThrow(RangeError);
+    expect(frame("ok", new Uint8Array(MTU * MAX_FRAMES))).toHaveLength(MAX_FRAMES);
+  });
+
+  it("buffers a bounded number of transfers per peer", () => {
+    const r = new Reassembler(2);
+    const body = new Uint8Array(MTU * 2).fill(9);
+    const [a0] = frame("a", body);
+    const [b0] = frame("b", body);
+    const [c0, c1] = frame("c", body);
+    r.push(a0);
+    r.push(b0);
+    r.push(c0);
+    expect(r.size).toBe(2); // "a" was evicted
+    expect(r.push(c1)).toEqual({ digest: "c", body });
+    expect(r.size).toBe(1);
+  });
+
+  it("parses untrusted JSON without throwing", () => {
+    expect(parse("{not json")).toBeUndefined();
+    expect(parse(new Uint8Array([0xff, 0xfe]))).toBeUndefined();
+    expect(parse("x".repeat(100), 10)).toBeUndefined();
+    expect(parse('{"a":1}')).toEqual({ a: 1 });
+    expect(parse(new TextEncoder().encode("null"))).toBeNull();
   });
 });
