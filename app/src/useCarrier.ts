@@ -283,7 +283,7 @@ export function useCarrier(services: Services) {
       for (const p of await r.peers()) {
         try {
           const ds = await r.digests(p);
-          next[p.toBase58()] = ds.filter((d) => !pocket.node.holds(d)).length;
+          next[p.toBase58()] = ds.filter((d) => pocket.couldTake(d)).length;
         } catch {
           // out of range or slow: leave them at zero
         }

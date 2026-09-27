@@ -174,9 +174,8 @@ export function CarryScreen({
   }
 
   // --- coach ------------------------------------------------------------------------
-  const [coachOff, setCoachOff] = useState(false);
   const coach =
-    coachOff || radio.state !== "on"
+    pocket.tipsOff || radio.state !== "on"
       ? null
       : c.firstHandoff && !slips.length
         ? { n: 3, text: "Your share arrives when anyone further down the chain finds signal. You will see it land." }
@@ -202,7 +201,7 @@ export function CarryScreen({
           <Text style={[s.radioText, radio.state !== "on" && { color: C.ink }]}>{radioLine(radio, people.length)}</Text>
         </View>
 
-        {coach ? <Coach n={coach.n} text={coach.text} onDone={() => setCoachOff(true)} /> : null}
+        {coach ? <Coach n={coach.n} text={coach.text} onDone={() => pocket.stopTips().catch(() => {})} /> : null}
 
         <View style={[s.pocket, showLifted && { zIndex: 5 }]}>
           <View style={s.stitchBox} pointerEvents="none" />

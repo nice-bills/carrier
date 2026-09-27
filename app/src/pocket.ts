@@ -149,6 +149,8 @@ interface PocketFile {
   /** Keys this phone has completed a handoff with, for rank. */
   met: string[];
   onboarded: boolean;
+  /** The person dismissed the Carry tips. */
+  tipsOff?: boolean;
   pouch: CachedPouch | null;
   /** Slots signed on this phone, per `${pouch}:${epoch}`. Never reused. */
   slots: Record<string, number[]>;
@@ -207,6 +209,7 @@ export class Pocket implements HandoffServer {
   private handedOnCount = 0;
   private seq = 0;
   onboarded = false;
+  tipsOff = false;
 
   private constructor(
     readonly node: CarrierNode,
@@ -287,6 +290,19 @@ export class Pocket implements HandoffServer {
     return b.hops.length === 0 && b.owner.equals(this.me);
   }
 
+  /**
+   * Whether a note someone nearby holds is one this phone could take: not one
+   * it holds, signed, or already carried. The program refuses a chain that
+   * names the same carrier twice, so offering those back only fails.
+   */
+  couldTake(noteHash: string): boolean {
+    return (
+      !this.node.holds(noteHash) &&
+      !this.passedLog.some((p) => p.hash === noteHash) &&
+      !this.signedLog.some((s) => s.hash === noteHash)
+    );
+  }
+
   isForMe(b: Bundle): boolean {
     return b.note.to.equals(this.me);
   }
@@ -310,6 +326,13 @@ export class Pocket implements HandoffServer {
 
   async finishOnboarding(): Promise<void> {
     this.onboarded = true;
+    this.changed();
+    await this.persist();
+  }
+
+  /** Hide the Carry tips for good. */
+  async stopTips(): Promise<void> {
+    this.tipsOff = true;
     this.changed();
     await this.persist();
   }
@@ -426,7 +449,7 @@ export class Pocket implements HandoffServer {
    */
   async pull(transport: Transport, peer: PublicKey, only?: string[]): Promise<Bundle[]> {
     const offered = only ?? (await transport.digests(peer));
-    const wanted = [...new Set(offered)].filter((d) => !this.node.holds(d)).slice(0, MAX_PULL_PER_CONTACT);
+    const wanted = [...new Set(offered)].filter((d) => this.couldTake(d)).slice(0, MAX_PULL_PER_CONTACT);
     const taken: Bundle[] = [];
     for (const digest of wanted) {
       try {
@@ -709,6 +732,7 @@ export class Pocket implements HandoffServer {
       bundles: this.list().map(encodeBundle),
       met: [...this.met],
       onboarded: this.onboarded,
+      tipsOff: this.tipsOff,
       pouch: this.pouchCache,
       slots: this.slots,
       signed: this.signedLog,
@@ -746,6 +770,7 @@ export class Pocket implements HandoffServer {
     }
     // A v1 pocket belongs to someone who already used the app.
     this.onboarded = v === 1 ? true : file.onboarded === true;
+    this.tipsOff = file.tipsOff === true;
     this.pouchCache = parseCached(file.pouch);
     this.slots = {};
     if (file.slots && typeof file.slots === "object") {

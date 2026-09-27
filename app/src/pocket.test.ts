@@ -130,6 +130,25 @@ describe("pay, hand over, deliver", () => {
     expect(cy.pocket.node.holds(hash)).toBe(false);
   });
 
+  it("does not offer back a note this phone already carried or signed", async () => {
+    const ada = await phone();
+    const cy = await phone();
+    const dee = await phone();
+    const bo = await phone();
+    ada.pocket.observePouch(pouchFor(ada.key));
+    const hash = noteKey(await ada.pocket.pay({ to: bo.key, amount: 1_000_000n, relayFeeBps: 100, pickSlot }));
+    await handOver(ada, cy, hash);
+    await handOver(cy, dee, hash);
+
+    // Dee now holds it. Cy carried it and Ada signed it: neither could take it back.
+    expect(dee.pocket.digestsFor(cy.key)).toEqual([hash]);
+    expect(cy.pocket.couldTake(hash)).toBe(false);
+    expect(ada.pocket.couldTake(hash)).toBe(false);
+    expect(await cy.pocket.pull(link(dee.pocket, cy.key), dee.key)).toHaveLength(0);
+    expect(dee.pocket.node.holds(hash)).toBe(true);
+    expect(bo.pocket.couldTake(hash)).toBe(true);
+  });
+
   it("never offers a payment addressed to this phone", async () => {
     const ada = await phone();
     const bo = await phone();
@@ -160,6 +179,15 @@ describe("slots are never reused", () => {
     expect(again.pocket.list()).toHaveLength(2);
     const c = await again.pocket.pay({ to: bo, amount: 1_000_000n, relayFeeBps: 0, pickSlot });
     expect(c.note.slotIndex).toBe(3);
+  });
+
+  it("remembers that the tips were turned off", async () => {
+    const store = memoryStore();
+    const ada = await phone(store);
+    expect(ada.pocket.tipsOff).toBe(false);
+    await ada.pocket.stopTips();
+    const again = await Pocket.open(signer(ada.kp), store);
+    expect(again.pocket.tipsOff).toBe(true);
   });
 
   it("signs nothing if the slot cannot be saved", async () => {
