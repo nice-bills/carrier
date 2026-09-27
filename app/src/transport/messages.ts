@@ -52,7 +52,12 @@ export type Message =
   | { kind: "digests?"; id: string }
   | { kind: "digests"; id: string; digests: string[] }
   | { kind: "want"; id: string; digest: string }
-  | { kind: "offer"; id: string; body: unknown }
+  /**
+   * `trail` is the note's spread-map trail, optional and unsigned. Phones that
+   * predate it ignore it; phones that know it check it in `map/trail.ts` and
+   * drop it if it is off, without failing the offer.
+   */
+  | { kind: "offer"; id: string; body: unknown; trail?: unknown }
   | { kind: "nope"; id: string }
   | { kind: "ack"; digest: string; sig: string }
   /**
@@ -116,7 +121,8 @@ export function parseMessage(x: unknown): Message | null {
         ? { kind: "want", id: x.id, digest: x.digest }
         : null;
     case "offer":
-      return id(x.id) && isObj(x.body) ? { kind: "offer", id: x.id, body: x.body } : null;
+      if (!id(x.id) || !isObj(x.body)) return null;
+      return Array.isArray(x.trail) ? { kind: "offer", id: x.id, body: x.body, trail: x.trail } : { kind: "offer", id: x.id, body: x.body };
     case "nope":
       return id(x.id) ? { kind: "nope", id: x.id } : null;
     case "ack":

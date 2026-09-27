@@ -8,6 +8,7 @@ import { MINT, MINT_DECIMALS } from "../config";
 import { firstFreeSlot, type CachedPouch } from "../ledger";
 import { Pocket, memoryStore, nowSeconds } from "../pocket";
 import type { AppWallet, ChainService, Radio, RadioEvents, Services } from "../services/types";
+import { demoLocation, places, seededRoutes, trailOf } from "./places";
 
 /**
  * In-memory stand-ins for the device, so the whole app runs in a browser (or
@@ -29,6 +30,8 @@ export interface DemoOptions {
   offline?: boolean;
   /** Nobody in range. */
   alone?: boolean;
+  /** The spread map starts off (it starts on in the preview otherwise). */
+  mapOff?: boolean;
 }
 
 const seeded = (n: number) => Keypair.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => (i * 7 + n * 31 + 11) & 255));
@@ -220,14 +223,22 @@ export function demoServices(opts: DemoOptions = {}): Services {
   const setUpRemotes = async (mine: Pocket) => {
     if (remotes) return remotes;
     const made: Remote[] = [];
-    for (const key of opts.alone ? [] : [cast.chidi, cast.mei, cast.zanele]) {
-      made.push({ key, pocket: (await Pocket.open(new DemoWallet(key), memoryStore())).pocket });
+    for (const [name, key] of opts.alone ? [] : ([["chidi", cast.chidi], ["mei", cast.mei], ["zanele", cast.zanele]] as const)) {
+      const pocket = (await Pocket.open(new DemoWallet(key), memoryStore())).pocket;
+      // The others have the map on too, each standing somewhere on campus.
+      await pocket.setMapOn(true);
+      pocket.setLocator(() => places[name]);
+      made.push({ key, pocket });
     }
     // Mei is carrying a payment from Tunde to Kofi, and would hand it to you.
     const mei = made.find((r) => r.key === cast.mei);
     if (mei) {
       const { node, hash } = carry(cast.tunde, note(cast.tunde, cast.kofi.publicKey, 7.5, 12), [cast.ama], [70]);
-      mei.pocket.accept(node.prepareHandoff(hash, cast.mei.publicKey, nowSeconds()), cast.ama.publicKey);
+      const trail = trailOf([
+        ["sent", 0, "tunde", places.tunde, 78],
+        ["hop", 0, "ama", places.ama, 70],
+      ]);
+      mei.pocket.accept({ ...node.prepareHandoff(hash, cast.mei.publicKey, nowSeconds()), trail }, cast.ama.publicKey);
     }
     remotes = made;
     void mine;
@@ -237,12 +248,25 @@ export function demoServices(opts: DemoOptions = {}): Services {
   const seedPocket = async (p: Pocket) => {
     if (state.pouch) p.observePouch({ ...state.pouch });
     if (p.list().length) return;
+    // Each slip arrives with the trail its earlier phones would have sent,
+    // ending where you took it.
     // Carried: Ama -> Chidi -> you, for Zanele.
     const a = carry(cast.ama, note(cast.ama, cast.zanele.publicKey, 12, 4), [cast.chidi], [34]);
-    p.accept(a.node.prepareHandoff(a.hash, cast.me.publicKey, nowSeconds()), cast.chidi.publicKey, "handed");
+    const aTrail = trailOf([
+      ["sent", 0, "ama", places.ama, 41],
+      ["hop", 0, "chidi", places.chidi, 34],
+      ["hop", 1, "me", places.me, 2],
+    ]);
+    p.accept({ ...a.node.prepareHandoff(a.hash, cast.me.publicKey, nowSeconds()), trail: aTrail }, cast.chidi.publicKey, "handed");
     // Paid to you: Kofi -> Mei -> you.
     const b = carry(cast.kofi, note(cast.kofi, cast.me.publicKey, 4.2, 9, 100), [cast.mei], [18]);
-    p.accept(b.node.prepareHandoff(b.hash, cast.me.publicKey, nowSeconds()), cast.mei.publicKey, "handed");
+    const bTrail = trailOf([
+      ["sent", 0, "kofi", places.kofi, 26],
+      ["hop", 0, "mei", places.mei, 18],
+      ["hop", 1, "me", places.me, 1],
+    ]);
+    p.accept({ ...b.node.prepareHandoff(b.hash, cast.me.publicKey, nowSeconds()), trail: bTrail }, cast.mei.publicKey, "handed");
+    for (const { route, at } of seededRoutes()) p.addRoute(route, at);
   };
 
   return {
@@ -255,6 +279,7 @@ export function demoServices(opts: DemoOptions = {}): Services {
     },
     async openPocket(w) {
       const { pocket, report } = await Pocket.open(w, memoryStore());
+      await pocket.setMapOn(!opts.mapOff);
       if (!opts.notOnboarded && !opts.noKey) {
         await seedPocket(pocket);
         await pocket.finishOnboarding();
@@ -270,6 +295,7 @@ export function demoServices(opts: DemoOptions = {}): Services {
       return new DemoRadio(w.publicKey, pocket, remotes ?? [], events);
     },
     chain: demoChain(opts, state),
+    location: demoLocation(),
     openSettings: () => {},
     openUrl: () => {},
     share: async () => {},

@@ -2,6 +2,7 @@ import type { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.
 import type { Bundle, Signer, Transport } from "@carrier/mesh";
 import type { Pocket, RestoreReport } from "../pocket";
 import type { CachedPouch } from "../ledger";
+import type { LocationService } from "../map/location";
 
 /**
  * Everything the screens need from the device and the network, behind one
@@ -75,6 +76,8 @@ export interface Services {
   radioUnavailable(): Promise<string | null>;
   createRadio(wallet: AppWallet, pocket: Pocket, events: RadioEvents): Radio;
   chain: ChainService;
+  /** Where the phone is, for the spread map. Only read while the person has it on. */
+  location: LocationService;
   openSettings(): void;
   openUrl(url: string): void;
   /** Share text (the device key) through the system share sheet. */

@@ -10,6 +10,8 @@ import { slotVerdict } from "./ledger";
 import { WalletError } from "./wallet-error";
 import { announce } from "./ui/kit";
 import type { AppWallet, Balances, Radio, Services } from "./services/types";
+import type { Cell } from "./map/types";
+import { FIX_EVERY_MS, FIX_FRESH_MS, FIX_REFRESH_TIMEOUT_MS, FIX_TIMEOUT_MS } from "./map/location";
 
 /**
  * Everything the screens show and every action they can take, in one hook.
@@ -58,6 +60,8 @@ const HAND_WAIT_MS = 15_000;
 const HOLDINGS_EVERY_MS = 5_000;
 /** Other people's pouches checked per refresh, to notice settlements. */
 const MAX_WATCHED_PER_REFRESH = 12;
+/** After a fix attempt came back empty, handoffs do not wait on another for this long. */
+const FIX_RETRY_MS = 30_000;
 
 export function useCarrier(services: Services) {
   const [boot, setBoot] = useState<Boot>({ state: "loading" });
@@ -77,12 +81,18 @@ export function useCarrier(services: Services) {
   const [firstHandoff, setFirstHandoff] = useState(false);
   /** A handoff that did not finish: the slip is still in this pocket. */
   const [handFailed, setHandFailed] = useState<HandFailure | null>(null);
+  /** The last rounded fix, for the map's "you are here". Null when the map is off. */
+  const [here, setHere] = useState<Cell | null>(null);
 
   const radioRef = useRef<Radio | null>(null);
   const pulling = useRef(new Set<string>());
   const radioGen = useRef(0);
   const ids = useRef(0);
   const handTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  /** The last fix and when it came; the pocket reads this at the moment of a handoff. */
+  const lastFix = useRef<{ cell: Cell; at: number } | null>(null);
+  const lastTry = useRef(0);
+  const fixSoon = useRef<() => void>(() => {});
 
   const pocket = boot.state === "ready" || boot.state === "onboarding" ? boot.pocket : null;
   const wallet = boot.state === "ready" || boot.state === "onboarding" ? boot.wallet : null;
@@ -171,6 +181,83 @@ export function useCarrier(services: Services) {
     };
   }, [pocket, say]);
 
+  // --- where the phone is (only with the map on) --------------------------------------
+
+  const mapOn = pocket?.mapOn ?? false;
+
+  const freshFix = useCallback(
+    () => (lastFix.current && Date.now() - lastFix.current.at < FIX_FRESH_MS ? lastFix.current.cell : null),
+    [],
+  );
+
+  /** Read the location once. Only ever stores the rounded cell. Never throws. */
+  const refreshFix = useCallback(
+    async (timeoutMs: number) => {
+      if (!pocket?.mapOn) return;
+      lastTry.current = Date.now();
+      const cell = await services.location.fix(timeoutMs).catch(() => null);
+      if (!cell || !pocket.mapOn) return;
+      lastFix.current = { cell, at: Date.now() };
+      setHere((h) => (h && h.lat === cell.lat && h.lon === cell.lon ? h : cell));
+    },
+    [pocket, services],
+  );
+
+  /**
+   * Before a handoff: if the fix is stale, give the location up to
+   * `FIX_TIMEOUT_MS` to answer. Past that, or right after a miss, the handoff
+   * goes ahead and simply adds no point.
+   */
+  const fixForHandoff = useCallback(async () => {
+    if (!pocket?.mapOn || freshFix() || Date.now() - lastTry.current < FIX_RETRY_MS) return;
+    await refreshFix(FIX_TIMEOUT_MS);
+  }, [pocket, freshFix, refreshFix]);
+
+  useEffect(() => {
+    if (!pocket) return;
+    pocket.setLocator(freshFix);
+    return () => pocket.setLocator(() => null);
+  }, [pocket, freshFix]);
+
+  useEffect(() => {
+    fixSoon.current = () => {
+      if (!freshFix()) refreshFix(FIX_REFRESH_TIMEOUT_MS).catch(() => {});
+    };
+  }, [freshFix, refreshFix]);
+
+  // While the map is on and the app is open, keep a recent fix so a handoff
+  // never has to wait for one.
+  useEffect(() => {
+    if (!pocket || boot.state !== "ready" || !mapOn) {
+      lastFix.current = null;
+      setHere(null);
+      return;
+    }
+    refreshFix(FIX_REFRESH_TIMEOUT_MS).catch(() => {});
+    const id = setInterval(() => {
+      refreshFix(FIX_REFRESH_TIMEOUT_MS).catch(() => {});
+    }, FIX_EVERY_MS);
+    return () => clearInterval(id);
+  }, [pocket, boot.state, mapOn, refreshFix]);
+
+  /** Ask for location and turn the map on. False (and a sentence) if refused. */
+  const turnOnMap = useCallback(async (): Promise<boolean> => {
+    if (!pocket) return false;
+    if (!(await services.location.request().catch(() => false))) {
+      say("Location was not allowed, so the map stays off. Nothing about where you are was saved.");
+      return false;
+    }
+    await pocket.setMapOn(true).catch(() => {});
+    return true;
+  }, [pocket, services, say]);
+
+  /** Turn the map off. No new points are added; routes already here stay. */
+  const turnOffMap = useCallback(() => {
+    lastFix.current = null;
+    setHere(null);
+    pocket?.setMapOn(false).catch(() => {});
+  }, [pocket]);
+
   // --- radio -----------------------------------------------------------------------
 
   const refreshPeers = useCallback(async () => {
@@ -188,6 +275,7 @@ export function useCarrier(services: Services) {
       if (pulling.current.has(k)) return [] as Bundle[];
       pulling.current.add(k);
       try {
+        await fixForHandoff();
         return await pocket.pull(r, peer, only);
       } catch {
         return [] as Bundle[];
@@ -196,7 +284,7 @@ export function useCarrier(services: Services) {
         setHoldings((h) => ({ ...h, [k]: 0 }));
       }
     },
-    [pocket],
+    [pocket, fixForHandoff],
   );
 
   const stopRadio = useCallback(async () => {
@@ -230,6 +318,8 @@ export function useCarrier(services: Services) {
       const r = services.createRadio(wallet, pocket, {
         peerReady: (peer) => {
           pocket.noteNearby(peer, true);
+          // Someone to hand to is in range: have a fix ready before they ask.
+          fixSoon.current();
           refreshPeers();
         },
         peerGone: (peer) => {
@@ -325,6 +415,7 @@ export function useCarrier(services: Services) {
         failed(`${shorten(peer)} walked out of range.`);
         return;
       }
+      await fixForHandoff();
       try {
         pocket.handTo(noteHash, peer);
         await r.hand(peer, [noteHash]);
@@ -347,7 +438,7 @@ export function useCarrier(services: Services) {
         }, HAND_WAIT_MS),
       );
     },
-    [pocket, peers, say],
+    [pocket, peers, say, fixForHandoff],
   );
 
   const take = useCallback(
@@ -363,6 +454,7 @@ export function useCarrier(services: Services) {
     async (to: PublicKey, amount: bigint, relayFeeBps: number): Promise<{ ok: true; bundle: Bundle } | { ok: false; message: string }> => {
       if (!pocket) return { ok: false, message: "Carrier is still opening." };
       try {
+        await fixForHandoff();
         const bundle = await pocket.pay({
           to,
           amount,
@@ -375,7 +467,7 @@ export function useCarrier(services: Services) {
         return { ok: false, message: e instanceof PayError ? e.message : `Not signed: ${(e as Error).message}` };
       }
     },
-    [pocket, peers, pass, services],
+    [pocket, peers, pass, services, fixForHandoff],
   );
 
   // --- online: pouch, settlements --------------------------------------------------
@@ -434,6 +526,7 @@ export function useCarrier(services: Services) {
       });
       try {
         const { signatures } = await services.chain.settle(wallet, bundle);
+        await fixForHandoff();
         const r = pocket.settledHere(bundle, signatures);
         setReceipt(r);
         const mine = r.carriers.find((c) => c.you);
@@ -454,7 +547,7 @@ export function useCarrier(services: Services) {
         });
       }
     },
-    [pocket, wallet, services, refreshOnline],
+    [pocket, wallet, services, refreshOnline, fixForHandoff],
   );
 
   const setupPouch = useCallback(
@@ -501,6 +594,7 @@ export function useCarrier(services: Services) {
 
   const slips = useMemo(() => (pocket ? pocket.list() : []), [pocket, version]);
   const spendable = useMemo(() => (pocket ? pocket.spendable(nowSeconds()) : 0n), [pocket, version]);
+  const routes = useMemo(() => (pocket ? pocket.routes() : []), [pocket, version]);
 
   return {
     boot,
@@ -546,6 +640,14 @@ export function useCarrier(services: Services) {
       setHandFailed({ ...f, id: ids.current });
     },
     say,
+    /** The person turned the spread map on (saved with the pocket). */
+    mapOn,
+    turnOnMap,
+    turnOffMap,
+    /** The last rounded fix; null when the map is off or no fix came yet. */
+    here,
+    /** Every payment this phone knows a trail for, newest first. */
+    routes,
     amountText: (b: Bundle) => formatAmount(b).text,
     services,
   };
