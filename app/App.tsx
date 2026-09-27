@@ -95,8 +95,18 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
     const prev = lastRank.current;
     lastRank.current = rankName;
     const at = (n: string) => RANKS.findIndex((r) => r.name === n);
-    if (prev && at(rankName) > at(prev)) setRankUp(rankName);
+    if (prev && at(rankName) > at(prev)) setRankDue(rankName);
   }, [rankName, c.pocket]);
+  // Let the handed-off slip finish flying to its new holder first.
+  const [rankDue, setRankDue] = useState<string | null>(null);
+  useEffect(() => {
+    if (!rankDue) return;
+    const t = setTimeout(() => {
+      setRankUp(rankDue);
+      setRankDue(null);
+    }, 900);
+    return () => clearTimeout(t);
+  }, [rankDue]);
 
   const goTab = useCallback(
     (t: Tab) => {
