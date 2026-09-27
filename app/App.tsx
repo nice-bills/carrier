@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Platform, SafeAreaView, StatusBar as SystemBar, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { PublicKey } from "@solana/web3.js";
 import type { Bundle } from "@carrier/mesh";
@@ -12,11 +12,14 @@ import { Onboarding } from "./src/screens/Onboarding";
 import { CarryScreen } from "./src/screens/Carry";
 import { AroundScreen } from "./src/screens/Around";
 import { YouScreen } from "./src/screens/You";
-import { LegalSheet, PassSheet, PaySheet, PouchSheet, ReceiptSheet } from "./src/screens/Sheets";
+import { HandFailedSheet, LegalSheet, PassSheet, PaySheet, PouchSheet, ReceiptSheet } from "./src/screens/Sheets";
+import { RankUp } from "./src/screens/RankUp";
+import { RANKS, rankFor } from "./src/rank";
 
 /**
  * Carrier: onboarding, then three tabs (Carry, Around, You) and the sheets
- * that confirm anything that moves money.
+ * that confirm anything that moves money. Reaching a new rank takes over the
+ * screen for a moment; a handoff that did not finish gets its own sheet.
  *
  * `services` is the device: `src/services/native.ts` on a phone, or the
  * in-memory fakes in `src/demo/` for a browser preview. `demo` opens the app
@@ -36,6 +39,8 @@ export interface DemoScript {
   dragOver?: string;
   selected?: string;
   reducedMotion?: boolean;
+  /** Open on the rank-up screen for this rank. */
+  rankUp?: string;
   /** Called once the app is ready, to stage what the screen needs (a receipt, a moment). */
   stage?: (c: ReturnType<typeof useCarrier>) => void;
 }
@@ -60,6 +65,8 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
   const [legal, setLegal] = useState<"terms" | "privacy" | null>(null);
   const [seen, setSeen] = useState({ around: 0, carry: 0 });
   const [staged, setStaged] = useState(false);
+  const [rankUp, setRankUp] = useState<string | null>(demo?.rankUp ?? null);
+  const lastRank = useRef<string | null>(null);
 
   const ready = c.boot.state === "ready";
 
@@ -79,6 +86,17 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
     if (demo.sheet === "pouch") setPouchOpen(true);
     if (demo.sheet === "terms" || demo.sheet === "privacy") setLegal(demo.sheet);
   }, [demo, staged, c]);
+
+  // A new rank, reached just now (not the one the pocket opened with), gets its moment.
+  const met = c.pocket?.peopleMet ?? 0;
+  const rankName = rankFor(met).current.name;
+  useEffect(() => {
+    if (!c.pocket) return;
+    const prev = lastRank.current;
+    lastRank.current = rankName;
+    const at = (n: string) => RANKS.findIndex((r) => r.name === n);
+    if (prev && at(rankName) > at(prev)) setRankUp(rankName);
+  }, [rankName, c.pocket]);
 
   const goTab = useCallback(
     (t: Tab) => {
@@ -112,13 +130,32 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
   }
 
   const legalSheet = <LegalSheet which={legal} onClose={() => setLegal(null)} />;
+  const rankInfo = rankUp ? RANKS.find((r) => r.name === rankUp) : null;
+  const rankSheet = (
+    <RankUp
+      visible={!!rankInfo}
+      rank={rankInfo?.name ?? ""}
+      next={rankInfo ? (RANKS[RANKS.indexOf(rankInfo) + 1]?.name ?? null) : null}
+      peopleMet={met}
+      carried={c.pocket?.handedOn ?? 0}
+      onShare={() =>
+        c.services.share(
+          `I'm a ${rankUp} on Carrier: I've met ${met} ${met === 1 ? "person" : "people"} who pass money hand to hand, with no signal.`,
+        )
+      }
+      onClose={() => setRankUp(null)}
+    />
+  );
 
   if (c.boot.state === "onboarding") {
     return (
       <SafeAreaView style={styles.screen}>
-        <Onboarding c={c} step={step} setStep={setStep} onLegal={setLegal} />
+        <View style={styles.inset}>
+          <Onboarding c={c} step={step} setStep={setStep} onLegal={setLegal} />
+        </View>
         {c.toast ? <Toast key={c.toast.id} text={c.toast.text} onDone={c.dismissToast} /> : null}
         {legalSheet}
+        {rankSheet}
         <StatusBar style="dark" />
       </SafeAreaView>
     );
@@ -132,7 +169,7 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={{ flex: 1 }}>
+      <View style={[{ flex: 1 }, styles.inset]}>
         {tab === "carry" ? (
           <CarryScreen
             c={c}
@@ -178,7 +215,22 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
       ) : null}
       <ReceiptSheet c={c} receipt={c.receipt} onClose={c.closeReceipt} />
       <PouchSheet c={c} visible={pouchOpen} onClose={() => setPouchOpen(false)} />
+      <HandFailedSheet
+        c={c}
+        onRetry={() => {
+          const f = c.handFailed;
+          if (!f) return;
+          c.clearHandFailed();
+          c.pass(f.noteHash, f.peer);
+        }}
+        onPickElse={() => {
+          c.clearHandFailed();
+          setSelected(null);
+          goTab("carry");
+        }}
+      />
       {legalSheet}
+      {rankSheet}
       <StatusBar style="dark" />
     </SafeAreaView>
   );
@@ -187,4 +239,7 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.paper },
   centre: { alignItems: "center", justifyContent: "center", gap: 16, paddingHorizontal: 32 },
+  // Android draws the app under a translucent status bar; SafeAreaView only
+  // covers iOS, so keep content below the bar here.
+  inset: { flex: 1, paddingTop: Platform.OS === "android" ? (SystemBar.currentHeight ?? 24) : 0 },
 });
