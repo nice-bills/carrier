@@ -6,7 +6,7 @@ import { FONT } from "../ui/fonts";
 import { Appear, Button, Card, CountUp, Note, ScreenHead, buzz, spring, type, useReducedMotion } from "../ui/kit";
 import { MapGlyph } from "../ui/chrome";
 import type { Carrier } from "../useCarrier";
-import { SpreadMap, canSaveOffline, saveArea } from "../map/SpreadMap";
+import { ATTRIBUTION, SpreadMap, canSaveOffline, saveArea } from "../map/SpreadMap";
 import { distanceText, durationSpoken, durationText, hands, lastAt, routeMetres, settleMs, settledPoint, today } from "../map/geo";
 import type { Cell, Route } from "../map/types";
 
@@ -65,6 +65,7 @@ function OnMap({
   const focus = mine.find((r) => r.id === focusId) ?? mine[0] ?? null;
   const seen = useMemo(() => today(routes), [routes]);
   const shown = view === "route" ? mine : seen;
+  const cells = useMemo(() => shown.flatMap((r) => r.points.map((p) => p.cell)).concat(c.here ? [c.here] : []), [shown, c.here]);
 
   const [top, setTop] = useState(0);
   const [bottom, setBottom] = useState(0);
@@ -107,18 +108,33 @@ function OnMap({
             <Crosshair />
           </Pressable>
         </View>
+        {canSaveOffline && cells.length ? <SaveOffline cells={cells} /> : null}
       </View>
 
       <View style={m.bottom} onLayout={(e) => setBottom(e.nativeEvent.layout.height)} pointerEvents="box-none">
-        <Pressable
-          onPress={() => c.services.openUrl("https://www.openstreetmap.org/copyright")}
-          accessibilityRole="link"
-          accessibilityLabel="Map data © OpenStreetMap contributors"
-          accessibilityHint="Opens the OpenStreetMap copyright page"
-          style={m.credit}
-        >
-          <Text style={m.creditText}>© OpenStreetMap</Text>
-        </Pressable>
+        <View style={m.chips} pointerEvents="box-none">
+          <Pressable
+            onPress={ATTRIBUTION.url ? () => c.services.openUrl(ATTRIBUTION.url!) : undefined}
+            disabled={!ATTRIBUTION.url}
+            accessibilityRole={ATTRIBUTION.url ? "link" : "text"}
+            accessibilityLabel={ATTRIBUTION.text}
+            accessibilityHint={ATTRIBUTION.url ? "Opens the OpenStreetMap copyright page" : undefined}
+            hitSlop={12}
+            style={[m.chip, { flexShrink: 1, marginRight: 8 }]}
+          >
+            <Text style={m.chipText} numberOfLines={1}>{ATTRIBUTION.text}</Text>
+          </Pressable>
+          <Pressable
+            onPress={c.turnOffMap}
+            accessibilityRole="button"
+            accessibilityLabel="Turn off the map"
+            accessibilityHint="Stops adding this phone's place to payments it passes on"
+            hitSlop={12}
+            style={({ pressed }) => [m.chip, pressed && { backgroundColor: C.paper2 }]}
+          >
+            <Text style={[m.chipText, { fontWeight: "700" }]}>Turn off map</Text>
+          </Pressable>
+        </View>
         <Card style={m.card}>
           <View accessibilityLiveRegion="polite">
             {view === "route" ? (
@@ -133,7 +149,6 @@ function OnMap({
               <Empty />
             )}
           </View>
-          <Footer c={c} cells={shown.flatMap((r) => r.points.map((p) => p.cell)).concat(c.here ? [c.here] : [])} />
         </Card>
       </View>
     </View>
@@ -302,9 +317,9 @@ function Empty() {
   );
 }
 
-/** Keep the tiles for no signal (phone only), and turn the map off. */
-function Footer({ c, cells }: { c: Carrier; cells: Cell[] }) {
-  const [save, setSave] = useState<{ state: "idle" | "saving" | "done" | "failed"; pct: number; msg?: string }>({ state: "idle", pct: 0 });
+/** Keep the map tiles round what is drawn, for no signal. Phone only; needs signal while it runs. */
+function SaveOffline({ cells }: { cells: Cell[] }) {
+  const [save, setSave] = useState<{ state: "idle" | "saving" | "done" | "failed"; pct: number }>({ state: "idle", pct: 0 });
   const live = useRef(true);
   useEffect(
     () => () => {
@@ -313,48 +328,33 @@ function Footer({ c, cells }: { c: Carrier; cells: Cell[] }) {
     [],
   );
   const start = () => {
+    buzz("tap");
     setSave({ state: "saving", pct: 0 });
     saveArea(cells, (pct) => live.current && setSave({ state: "saving", pct }))
       .then(() => live.current && setSave({ state: "done", pct: 100 }))
-      .catch((e: unknown) => live.current && setSave({ state: "failed", pct: 0, msg: e instanceof Error ? e.message : String(e) }));
+      .catch(() => live.current && setSave({ state: "failed", pct: 0 }));
   };
-  const saveText =
+  const text =
     save.state === "saving"
       ? `Saving map… ${Math.round(save.pct)}%`
       : save.state === "done"
         ? "Saved for offline"
         : save.state === "failed"
-          ? "Couldn’t save. Try again"
+          ? "Couldn’t save. It needs signal"
           : "Save this area for offline";
   return (
-    <View>
-      <View style={m.foot}>
-        {canSaveOffline && cells.length ? (
-          <Pressable
-            onPress={save.state === "saving" ? undefined : start}
-            accessibilityRole="button"
-            accessibilityLabel={saveText}
-            accessibilityHint="Downloads the map round these places so it draws with no signal. Needs signal while it saves."
-            accessibilityState={{ busy: save.state === "saving" }}
-            style={({ pressed }) => [m.link, pressed && { opacity: 0.6 }]}
-          >
-            <Text style={[m.linkText, { color: C.ink }]}>{saveText}</Text>
-          </Pressable>
-        ) : (
-          <View />
-        )}
-        <Pressable
-          onPress={c.turnOffMap}
-          accessibilityRole="button"
-          accessibilityLabel="Turn off the map"
-          accessibilityHint="Stops adding this phone's place to payments it passes on"
-          style={({ pressed }) => [m.link, pressed && { opacity: 0.6 }]}
-        >
-          <Text style={m.linkText}>Turn off</Text>
-        </Pressable>
-      </View>
-      {save.state === "failed" && save.msg ? <Text style={m.fail}>{save.msg} Saving needs signal.</Text> : null}
-    </View>
+    <Pressable
+      onPress={save.state === "saving" ? undefined : start}
+      accessibilityRole="button"
+      accessibilityLabel={text}
+      accessibilityHint="Downloads the map round these places so it still draws with no signal. Needs signal while it saves."
+      accessibilityState={{ busy: save.state === "saving" }}
+      accessibilityLiveRegion="polite"
+      style={({ pressed }) => [m.save, pressed && { backgroundColor: C.paper2 }]}
+    >
+      <MapGlyph colour={save.state === "failed" ? C.red : C.ink} />
+      <Text style={[m.saveText, save.state === "failed" && { color: C.red }]}>{text}</Text>
+    </Pressable>
   );
 }
 
@@ -474,20 +474,29 @@ function Point({ text }: { text: string }) {
 
 /** A small drawing of a route: three handoffs and a settle, on a folded map. Decorative. */
 function Sketch() {
-  const dot = (left: number, top: number, colour: string, size = 14) => (
-    <View style={{ position: "absolute", left: left - size / 2, top: top - size / 2, width: size, height: size, borderRadius: size / 2, backgroundColor: colour, borderWidth: 2.5, borderColor: C.card }} />
-  );
+  const stops: [number, number, string, number][] = [
+    [34, 24, C.ink, 14],
+    [96, 50, C.ink, 14],
+    [158, 30, C.slip, 16],
+    [206, 62, C.green, 18],
+  ];
   return (
     <View style={m.sketch} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-      <View style={[m.sketchRoad, { top: 34, left: -10, right: -10, transform: [{ rotate: "-6deg" }] }]} />
-      <View style={[m.sketchRoad, { left: 92, top: -10, bottom: -10, width: 12, height: undefined, transform: [{ rotate: "4deg" }] }]} />
-      <View style={[m.sketchLine, { left: 34, top: 24, width: 64, transform: [{ rotate: "22deg" }] }]} />
-      <View style={[m.sketchLine, { left: 98, top: 44, width: 62, transform: [{ rotate: "-16deg" }] }]} />
-      <View style={[m.sketchLine, { left: 156, top: 42, width: 52, transform: [{ rotate: "38deg" }] }]} />
-      {dot(34, 22, C.ink)}
-      {dot(96, 48, C.ink)}
-      {dot(158, 32, C.slip, 16)}
-      {dot(200, 62, C.green, 18)}
+      <View style={[m.sketchRoad, { top: 40, left: -10, right: -10, transform: [{ rotate: "-6deg" }] }]} />
+      <View style={[m.sketchRoad, { left: 120, top: -10, width: 12, height: 110, transform: [{ rotate: "4deg" }] }]} />
+      {stops.slice(1).map(([x2, y2], i) => {
+        // a segment is a thin bar centred between two stops, turned to join them
+        const [x1, y1] = stops[i]!;
+        const len = Math.hypot(x2 - x1, y2 - y1);
+        const deg = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI;
+        return <View key={i} style={[m.sketchLine, { left: (x1 + x2) / 2 - len / 2, top: (y1 + y2) / 2 - 1.5, width: len, transform: [{ rotate: `${deg}deg` }] }]} />;
+      })}
+      {stops.map(([x, y, colour, size]) => (
+        <View
+          key={`${x}`}
+          style={{ position: "absolute", left: x - size / 2, top: y - size / 2, width: size, height: size, borderRadius: size / 2, backgroundColor: colour, borderWidth: 2.5, borderColor: C.card }}
+        />
+      ))}
       <View style={m.sketchGlyph}>
         <MapGlyph colour={C.ink2} />
       </View>
@@ -501,9 +510,12 @@ const m = StyleSheet.create({
   topRow: { flexDirection: "row", gap: 10, alignItems: "center" },
   round: { width: TARGET + 4, height: TARGET + 4, borderRadius: R.pill, backgroundColor: C.card, alignItems: "center", justifyContent: "center", ...SHADOW, shadowOpacity: 0.12 },
   bottom: { position: "absolute", left: 12, right: 12, bottom: 10 },
-  credit: { alignSelf: "flex-start", backgroundColor: C.card, borderRadius: R.pill, paddingHorizontal: 9, paddingVertical: 3, marginBottom: 8, marginLeft: 4 },
-  creditText: { fontFamily: FONT.face, fontSize: 11, color: C.ink2 },
-  card: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4, ...SHADOW, shadowOpacity: 0.12, shadowRadius: 20 },
+  chips: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8, marginHorizontal: 4 },
+  chip: { backgroundColor: C.card, borderRadius: R.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  chipText: { fontFamily: FONT.face, fontSize: 12, color: C.ink2 },
+  save: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 8, minHeight: 38, marginTop: 10, paddingHorizontal: 14, borderRadius: R.pill, backgroundColor: C.card, ...SHADOW, shadowOpacity: 0.12 },
+  saveText: { fontFamily: FONT.face, fontSize: 13, fontWeight: "700", color: C.ink },
+  card: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 16, ...SHADOW, shadowOpacity: 0.12, shadowRadius: 20 },
   head: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   title: { fontFamily: FONT.face, fontSize: 18, fontWeight: "700", color: C.ink, letterSpacing: -0.2 },
   sub: { fontFamily: FONT.face, fontSize: 14, lineHeight: 19, color: C.ink2, marginTop: 3 },
@@ -520,10 +532,8 @@ const m = StyleSheet.create({
   key: { flexDirection: "row", alignItems: "center", gap: 6 },
   keyDot: { width: 10, height: 10, borderRadius: 5 },
   keyText: { fontFamily: FONT.face, fontSize: 12, fontWeight: "500", color: C.ink2 },
-  foot: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 },
   link: { minHeight: TARGET, justifyContent: "center", paddingHorizontal: 2 },
   linkText: { fontFamily: FONT.face, fontSize: T.small, fontWeight: "700", color: C.ink2 },
-  fail: { fontFamily: FONT.face, fontSize: 13, lineHeight: 18, color: C.red, marginBottom: 10 },
   // opt-in
   body: { paddingHorizontal: S.gutter, paddingBottom: 32 },
   optCard: { padding: 20, marginTop: 8 },
@@ -537,6 +547,6 @@ const m = StyleSheet.create({
   refusedText: { fontFamily: FONT.face, fontSize: 14, lineHeight: 20, color: C.ink2 },
   sketch: { height: 88, borderRadius: 18, backgroundColor: C.paper2, overflow: "hidden" },
   sketchRoad: { position: "absolute", height: 12, backgroundColor: C.card },
-  sketchLine: { position: "absolute", height: 3, borderRadius: 2, backgroundColor: C.slipDeep, transformOrigin: "left center" },
+  sketchLine: { position: "absolute", height: 3, borderRadius: 2, backgroundColor: C.slipDeep },
   sketchGlyph: { position: "absolute", right: 12, top: 10 },
 });

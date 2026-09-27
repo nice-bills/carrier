@@ -154,7 +154,7 @@ export function shapes(routes: readonly Route[], focus: Route | null, me: string
       .sort((a, b) => Number(a.id === focus?.id) - Number(b.id === focus?.id))
       .map((r) => ({
         type: "Feature",
-        id: r.id,
+        // No feature `id`: a note key of all digits would be taken for a number too big to encode.
         properties: { line: mode === "today" ? "spread" : r.id === focus?.id ? "focus" : "faint" },
         geometry: { type: "LineString", coordinates: routeLine(r) },
       })),
@@ -200,12 +200,11 @@ export interface Pin {
   side: "left" | "right";
 }
 
-/** The chosen route's pins, one per point, with a time tag on the side away from its neighbours. */
+/** The chosen route's pins, one per point, with a time tag on the side facing the middle of the route (so it stays on screen). */
 export function pinsFor(r: Route, me: string, time: (ms: number) => string): Pin[] {
-  return r.points.map((p, i) => {
-    const prev = r.points[i - 1]?.cell;
-    const next = r.points[i + 1]?.cell;
-    const east = (prev ? prev.lon - p.cell.lon : 0) + (next ? next.lon - p.cell.lon : 0);
+  const lons = r.points.map((p) => p.cell.lon);
+  const mid = (Math.min(...lons) + Math.max(...lons)) / 2;
+  return r.points.map((p) => {
     const dot = dotOf(p, me);
     return {
       key: `${p.kind}${p.seq}`,
@@ -213,7 +212,7 @@ export function pinsFor(r: Route, me: string, time: (ms: number) => string): Pin
       dot,
       face: dot === "me" ? "You" : p.who.slice(0, 2),
       tag: p.kind === "settled" ? "Settled" : time(p.at),
-      side: east > 0 ? "left" : "right",
+      side: p.cell.lon > mid ? "left" : "right",
     };
   });
 }

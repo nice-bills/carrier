@@ -47,10 +47,10 @@ export function SpreadMap({ routes, focus, me, here, mode, inset, locate, label,
       bounds: {
         sw: b[0],
         ne: b[1],
-        paddingTop: inset.top + 40,
+        paddingTop: inset.top + 50,
         paddingBottom: inset.bottom + 40,
-        paddingLeft: 60,
-        paddingRight: 60,
+        paddingLeft: 70,
+        paddingRight: 70,
       },
     };
   }, [mode, focus, routes, here, inset.top, inset.bottom]);
@@ -122,6 +122,9 @@ export function SpreadMap({ routes, focus, me, here, mode, inset, locate, label,
 
 /** Whether this build can keep map tiles for use without signal. */
 export const canSaveOffline = true;
+
+/** Credit the tile licence asks for: OpenFreeMap's tiles, OpenMapTiles' schema, OSM's data. */
+export const ATTRIBUTION = { text: "OpenFreeMap © OpenMapTiles © OpenStreetMap", url: "https://www.openstreetmap.org/copyright" };
 
 /**
  * Download the map around `cells` (zooms 13 to 17) so it draws with no

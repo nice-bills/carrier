@@ -148,10 +148,13 @@ export function SpreadMap({ routes, focus, me, here, mode, inset, locate, label,
 
   const fit = () => {
     if (!map) return;
+    map.resize();
+    // Not laid out yet (or the controls are measured but the map is not): wait.
+    if (map.getContainer().clientHeight < inset.top + inset.bottom + 160) return;
     const cells = mode === "route" ? (focus?.points.map((p) => p.cell) ?? []) : routes.flatMap((r) => r.points.map((p) => p.cell));
     const b = boundsOf(cells.length ? cells : here ? [here] : []) ?? [CAMPUS_BOUNDS.slice(0, 2), CAMPUS_BOUNDS.slice(2)];
     map.fitBounds(b as [[number, number], [number, number]], {
-      padding: { top: inset.top + 40, bottom: inset.bottom + 40, left: 60, right: 60 },
+      padding: { top: inset.top + 50, bottom: inset.bottom + 40, left: 70, right: 70 },
       duration: reduced ? 0 : 600,
       maxZoom: 17,
     });
@@ -168,7 +171,8 @@ export function SpreadMap({ routes, focus, me, here, mode, inset, locate, label,
 
   return (
     <View style={StyleSheet.absoluteFill} accessible accessibilityRole="image" accessibilityLabel={label}>
-      <View ref={box} style={StyleSheet.absoluteFill} />
+      {/* maplibre makes its container position: relative, so size it by width and height, not insets. */}
+      <View ref={box} style={{ width: "100%", height: "100%" }} />
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { overflow: "hidden" }]} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
         {map
           ? CAMPUS_LABELS.map((l) => {
@@ -197,6 +201,9 @@ export function SpreadMap({ routes, focus, me, here, mode, inset, locate, label,
 
 /** The preview has no tile server to save from. */
 export const canSaveOffline = false;
+
+/** The preview draws a made-up campus, not map data, so it credits nobody's tiles. */
+export const ATTRIBUTION = { text: "Demo campus, drawn for the preview", url: null as string | null };
 
 export async function saveArea(): Promise<void> {
   throw new Error("Saving the map for offline needs the phone app.");
