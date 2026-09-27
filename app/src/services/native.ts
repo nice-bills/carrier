@@ -17,6 +17,7 @@ import { Pocket } from "../pocket";
 import { fileStore } from "../store";
 import { ensureRadioPermissions } from "../permissions";
 import { NearbyTransport } from "../transport/nearby";
+import { expoLocation } from "../map/expoLocation";
 import { rehydrate, toCached, type CachedPouch } from "../ledger";
 import { AIRDROP_LAMPORTS, CLUSTER, MINT, PROBE_TIMEOUT_MS, RPC_URL } from "../config";
 import type { AppWallet, ChainService, Services } from "./types";
@@ -124,6 +125,7 @@ export function nativeServices(): Services {
     },
     createRadio: (wallet, pocket, events) => new NearbyTransport(wallet, pocket, events),
     chain: nativeChain(),
+    location: expoLocation(),
     openSettings: () => {
       Linking.openSettings().catch(() => {});
     },

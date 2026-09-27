@@ -27,12 +27,12 @@ import {
   frame,
   reassemble,
   type Frame,
-  type HandoffOffer,
   type Signer,
   type Transport,
 } from "@carrier/mesh";
 import { hashNote } from "@carrier/protocol";
 import { hex, parseOffer } from "../chain";
+import type { TrailedOffer } from "../map/trail";
 import { NONCE_BYTES, authMessage, verifyProof } from "./auth";
 import {
   LIMITS,
@@ -85,8 +85,8 @@ const AUTH_TIMEOUT_MS = 10_000;
 export interface HandoffServer {
   /** Note hashes to advertise to this (authenticated) peer. */
   digestsFor(peer: PublicKey): string[];
-  /** Giver's half of a handoff to this peer. Throw to decline. */
-  offerFor(noteHash: string, peer: PublicKey): HandoffOffer;
+  /** Giver's half of a handoff to this peer, with the note's trail if known. Throw to decline. */
+  offerFor(noteHash: string, peer: PublicKey): TrailedOffer;
   /** The peer counter-signed a hop we offered. */
   acknowledged(peer: PublicKey, noteHash: string, signature: Uint8Array): void;
 }
@@ -197,14 +197,18 @@ export class NearbyTransport implements Transport {
     return (await answer) as string[];
   }
 
-  /** Ask an authenticated peer to hand over one note, naming us as the next carrier. */
-  async request(peer: PublicKey, noteHash: string): Promise<HandoffOffer> {
+  /**
+   * Ask an authenticated peer to hand over one note, naming us as the next
+   * carrier. The offer comes back with the peer's trail for it, as sent: the
+   * pocket checks it (`parseTrail`) when it takes the note.
+   */
+  async request(peer: PublicKey, noteHash: string): Promise<TrailedOffer> {
     if (!NOTE_HASH.test(noteHash)) throw new MeshError("not a note hash");
     const endpointId = this.endpointOf(peer);
     const id = randomHex(8);
     const answer = this.expect(id, endpointId, "offer", noteHash);
     this.send(endpointId, { kind: "want", id, digest: noteHash });
-    return (await answer) as HandoffOffer;
+    return (await answer) as TrailedOffer;
   }
 
   async acknowledge(peer: PublicKey, noteHash: string, signature: Uint8Array): Promise<void> {
@@ -432,7 +436,7 @@ export class NearbyTransport implements Transport {
         return;
       }
       case "want": {
-        let offer: HandoffOffer;
+        let offer: TrailedOffer;
         try {
           offer = this.server.offerFor(m.digest, key);
         } catch {
@@ -440,7 +444,10 @@ export class NearbyTransport implements Transport {
           this.send(peer.endpointId, { kind: "nope", id: m.id });
           return;
         }
-        this.send(peer.endpointId, { kind: "offer", id: m.id, body: encodeOffer(offer) });
+        // The trail rides next to the signed offer, never inside it. It is the
+        // pocket's own, already checked.
+        const { trail } = offer;
+        this.send(peer.endpointId, { kind: "offer", id: m.id, body: encodeOffer(offer), ...(Array.isArray(trail) && trail.length ? { trail } : {}) });
         return;
       }
       case "digests":
@@ -521,7 +528,9 @@ export class NearbyTransport implements Transport {
       if (hex(hashNote(offer.bundle.note)) !== p.digest) {
         throw new MeshError("offer is for a different note");
       }
-      p.resolve(offer);
+      // The trail is untrusted and unchecked here: the pocket parses it once
+      // when it takes the note, and a malformed one never costs the offer.
+      p.resolve(m.trail !== undefined ? { ...offer, trail: m.trail } : offer);
     } catch (e) {
       this.strike(peer, "bad offer");
       p.reject(e instanceof Error ? e : new MeshError("bad offer"));

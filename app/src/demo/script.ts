@@ -4,6 +4,8 @@ import { noteKey } from "../chain";
 import { shorten } from "../format";
 import type { DemoScript } from "../../App";
 import { cast, type DemoOptions } from "./services";
+import { demoPlace } from "../map/demoCampus";
+import { lastAt } from "../map/geo";
 
 /**
  * Which screen the browser preview opens on, from its query string:
@@ -20,6 +22,9 @@ import { cast, type DemoOptions } from "./services";
  *   ?screen=terms | privacy        the small print
  *   ?screen=rankup                 the new-rank screen, as if you just became a Carrier
  *   ?screen=failed                 the sheet for a handoff that did not finish
+ *   ?screen=map                    Map tab, "This payment", on your route that settled
+ *   ?screen=map&view=today         Map tab, "Seen today": every route this phone has seen
+ *   ?screen=map&off=1              Map tab with the map still off: the opt-in card
  *
  * Add `&reduced=1` for reduced motion, `&offline=1` for no signal,
  * `&nopouch=1` for a phone with no pouch, `&alone=1` for nobody in range.
@@ -29,7 +34,8 @@ export function demoFromQuery(query: string): { options: DemoOptions; script: De
   const screen = q.get("screen") ?? "carry";
   const flag = (k: string) => q.get(k) === "1" || q.get(k) === "true";
   const options: DemoOptions = { offline: flag("offline"), noPouch: flag("nopouch"), alone: flag("alone") };
-  const script: DemoScript = { reducedMotion: flag("reduced") ? true : undefined };
+  // The preview's campus has names for its places; a phone never does.
+  const script: DemoScript = { reducedMotion: flag("reduced") ? true : undefined, placeName: demoPlace };
   const zanele = cast.zanele.publicKey.toBase58();
 
   switch (screen) {
@@ -84,6 +90,13 @@ export function demoFromQuery(query: string): { options: DemoOptions; script: De
       script.tab = "you";
       script.sheet = "pouch";
       options.noPouch = true;
+      break;
+    case "map":
+      script.tab = "map";
+      script.mapView = q.get("view") === "today" ? "today" : "route";
+      script.mapFocus = (routes) =>
+        routes.filter((r) => r.mine && r.settled).sort((a, b) => lastAt(b) - lastAt(a))[0]?.id ?? null;
+      if (flag("off")) options.mapOff = true;
       break;
     case "rankup":
       script.rankUp = q.get("rank") ?? "Carrier";

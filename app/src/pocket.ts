@@ -23,6 +23,8 @@ import {
   type SignedNote,
 } from "./ledger";
 import type { HandoffServer } from "./transport/nearby";
+import type { Cell, Route, TrailPoint } from "./map/types";
+import { mergeTrail, parseRoutes, parseTrail, pointAt, pruneRoutes, type StoredRoute, type TrailedOffer } from "./map/trail";
 
 /**
  * The phone's pocket: the mesh node, what it holds on disk, the phone's own
@@ -61,10 +63,17 @@ import type { HandoffServer } from "./transport/nearby";
 export interface PocketStore {
   read(): Promise<string | null>;
   write(text: string): Promise<void>;
+  /**
+   * Another store kept next to this one, e.g. "routes" for the spread map's
+   * trails, so they are written only when they change. Without it they live
+   * in memory only.
+   */
+  side?(name: string): PocketStore;
 }
 
 /** A store that lives in memory only. For tests and the demo. */
-export function memoryStore(initial: string | null = null): PocketStore & { text: string | null } {
+export function memoryStore(initial: string | null = null): PocketStore & { text: string | null; side(name: string): PocketStore } {
+  const sides = new Map<string, PocketStore>();
   const s = {
     text: initial,
     async read() {
@@ -72,6 +81,11 @@ export function memoryStore(initial: string | null = null): PocketStore & { text
     },
     async write(text: string) {
       s.text = text;
+    },
+    side(name: string) {
+      let x = sides.get(name);
+      if (!x) sides.set(name, (x = memoryStore()));
+      return x;
     },
   };
   return s;
@@ -90,6 +104,8 @@ const MAX_PASSED = 64;
 const MAX_SIGNED = SLOTS_PER_EPOCH * 2;
 /** Live notes this phone signed or carried, remembered past the capped logs. */
 const MAX_TOUCHED = 4096;
+/** Routes held in memory before a prune; the stored cap is `MAX_ROUTES` in map/trail. */
+const MAX_ROUTES_SOFT = 240;
 
 export type FeedKind =
   | "took" // we took a note someone was carrying
@@ -153,6 +169,13 @@ interface PocketFile {
   onboarded: boolean;
   /** The person dismissed the Carry tips. */
   tipsOff?: boolean;
+  /** The person turned the spread map on: handoffs here add a rounded point. */
+  mapOn?: boolean;
+  /**
+   * Where each payment went, from before routes had a file of their own
+   * (`store.side("routes")`). Read once, moved there, then no longer written.
+   */
+  trails?: StoredRoute[];
   /** Note hash to expiry, for every live note this phone signed or carried. */
   touched?: Record<string, string>;
   pouch: CachedPouch | null;
@@ -193,6 +216,16 @@ export class PayError extends Error {
   }
 }
 
+/**
+ * Whether a point from a peer names whoever held `b` at that step: the payer
+ * for "sent", the hop's carrier for a hop. A note still being handed on has
+ * not settled, so a "settled" point from a peer never fits.
+ */
+const namesHolder = (p: TrailPoint, b: Bundle) =>
+  p.kind === "sent"
+    ? p.seq === 0 && p.who === b.owner.toBase58()
+    : p.kind === "hop" && b.hops[p.seq]?.relayer.toBase58() === p.who;
+
 const slotKey = (pouch: string, epoch: number) => `${pouch}:${epoch}`;
 const lastCarrierOf = (b: Bundle) => (b.hops.length ? b.hops[b.hops.length - 1]!.relayer : b.owner);
 
@@ -213,14 +246,27 @@ export class Pocket implements HandoffServer {
   private pouchCache: CachedPouch | null = null;
   private handedOnCount = 0;
   private seq = 0;
+  /**
+   * Trails by note hash. Kept after the note leaves, so the route stays
+   * viewable. Only notes with at least one point have a route.
+   */
+  private routeLog = new Map<string, StoredRoute>();
+  /** Routes changed since they were last written to their own file. */
+  private routesDirty = false;
+  private readonly routeStore: PocketStore | null;
+  /** Where the phone is now, rounded, or null. Set by the app; never waits on GPS. */
+  private locator: () => Cell | null = () => null;
   onboarded = false;
   tipsOff = false;
+  mapOn = false;
 
   private constructor(
     readonly node: CarrierNode,
     private readonly signer: Signer,
     private readonly store: PocketStore,
-  ) {}
+  ) {
+    this.routeStore = store.side?.("routes") ?? null;
+  }
 
   /** Load the pocket from its store. Nothing saved is an empty pocket; a corrupt save throws. */
   static async open(signer: Signer, store: PocketStore): Promise<{ pocket: Pocket; report: RestoreReport }> {
@@ -325,6 +371,101 @@ export class Pocket implements HandoffServer {
     return this.handing.get(noteHash)?.peer ?? null;
   }
 
+  // --- the spread map ------------------------------------------------------------
+
+  /** Turn the map on or off. Off stops new points; the trails already here stay. */
+  async setMapOn(on: boolean): Promise<void> {
+    if (this.mapOn === on) return;
+    this.mapOn = on;
+    this.changed();
+    await this.persist();
+  }
+
+  /**
+   * How the pocket learns where the phone is. Called synchronously at the
+   * moment of a handoff, so it must answer from a cached fix; null means no
+   * point is added.
+   */
+  setLocator(fn: () => Cell | null): void {
+    this.locator = fn;
+  }
+
+  /** Every payment this phone knows a trail for, newest first. */
+  routes(): Route[] {
+    return pruneRoutes([...this.routeLog.values()])
+      .filter((r) => r.points.length > 0)
+      .map(({ at: _at, ...r }) => ({ ...r, points: [...r.points] }));
+  }
+
+  /** The trail this phone knows for a note, as it would hand it on. */
+  trailFor(noteHash: string): TrailPoint[] {
+    return [...(this.routeLog.get(noteHash)?.points ?? [])];
+  }
+
+  /**
+   * Add a whole route, e.g. one the browser preview seeds. Points are checked
+   * and rounded like any trail from a peer.
+   */
+  addRoute(r: Route, at = Date.now()): void {
+    const known = this.routeLog.get(r.id);
+    const points = mergeTrail(known?.points ?? [], parseTrail(r.points));
+    if (!points.length) return;
+    this.routeLog.set(r.id, {
+      id: r.id,
+      amount: r.amount,
+      to: r.to,
+      points,
+      settled: r.settled || known?.settled === true,
+      mine: r.mine || known?.mine === true,
+      at,
+    });
+    this.routesDirty = true;
+    this.trimRoutes();
+  }
+
+  /** Where the phone is, only if the person turned the map on. */
+  private here(): Cell | null {
+    if (!this.mapOn) return null;
+    try {
+      return this.locator();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Add points to the route of a note this phone holds, making the route with
+   * its first point. No points, no route: nothing is kept about a note
+   * handled with the map off and no trail.
+   */
+  private addPoints(b: Bundle, key: string, points: readonly TrailPoint[]) {
+    if (!points.length) return;
+    let r = this.routeLog.get(key);
+    if (!r) {
+      r = { id: key, amount: formatAmount(b).text, to: b.note.to.toBase58(), points: [], settled: false, mine: true, at: Date.now() };
+      this.routeLog.set(key, r);
+    }
+    r.points = mergeTrail(r.points, points);
+    r.mine = true;
+    r.at = Date.now();
+    this.routesDirty = true;
+    this.trimRoutes();
+  }
+
+  /** A route this phone knows settled. Never makes a route. */
+  private routeSettled(key: string) {
+    const r = this.routeLog.get(key);
+    if (!r || r.settled) return;
+    r.settled = true;
+    r.at = Date.now();
+    this.routesDirty = true;
+  }
+
+  private trimRoutes() {
+    if (this.routeLog.size <= MAX_ROUTES_SOFT) return;
+    this.routeLog = new Map(pruneRoutes([...this.routeLog.values()]).map((r) => [r.id, r]));
+  }
+
   async finishOnboarding(): Promise<void> {
     this.onboarded = true;
     this.changed();
@@ -359,7 +500,7 @@ export class Pocket implements HandoffServer {
     return this.node.digests().filter((d) => this.mayServe(d, peer));
   }
 
-  offerFor(noteHash: string, peer: PublicKey): HandoffOffer {
+  offerFor(noteHash: string, peer: PublicKey): TrailedOffer {
     if (!this.mayServe(noteHash, peer)) throw new MeshError("not offered to this peer");
     // The node refuses to build a hop the program would not pay (a repeated
     // carrier, or the sender as carrier) and hands a note to its recipient
@@ -367,7 +508,11 @@ export class Pocket implements HandoffServer {
     const offer = this.node.prepareHandoff(noteHash, peer, nowSeconds());
     this.sweepOffers();
     this.offered.set(`${peer.toBase58()}:${noteHash}`, { hop: offer.hop, at: Date.now() });
-    return offer;
+    // The trail goes on as this phone knows it. The taker's point is the
+    // taker's to add: a point naming someone is only ever made on their own
+    // phone, with their map on.
+    const trail = this.trailFor(noteHash);
+    return trail.length ? { ...offer, trail } : offer;
   }
 
   acknowledged(peer: PublicKey, noteHash: string, signature: Uint8Array): void {
@@ -476,10 +621,11 @@ export class Pocket implements HandoffServer {
   }
 
   /** Verify an offer from `giver` end to end, then take custody of it. */
-  accept(offer: HandoffOffer, giver: PublicKey, how: "handed" | "took" = "took"): Bundle {
+  accept(offer: TrailedOffer, giver: PublicKey, how: "handed" | "took" = "took"): Bundle {
     const now = nowSeconds();
     verifyOffer(offer, giver, this.me, now);
     const carried = this.node.acceptHandoff(offer, now);
+    this.takeTrail(carried, offer);
     this.meet(giver);
     const amount = formatAmount(carried).text;
     if (carried.note.to.equals(this.me)) {
@@ -491,6 +637,25 @@ export class Pocket implements HandoffServer {
     }
     this.changed();
     return carried;
+  }
+
+  /**
+   * Keep the trail that came with an offer we just took, and add our own
+   * point if our map is on. This is the one place the taker's point is made.
+   * Points from the peer must name whoever held the note at that step, and
+   * never this phone. Nothing here may fail the handoff.
+   */
+  private takeTrail(carried: Bundle, offer: TrailedOffer) {
+    try {
+      const me = this.me.toBase58();
+      const incoming = parseTrail(offer.trail).filter((p) => p.who !== me && namesHolder(p, carried));
+      const here = this.here();
+      // Ours first, so it wins over anything the peer sent for this step.
+      const ours = here ? [pointAt(offer.hop.seq, "hop", me, here)] : [];
+      this.addPoints(carried, noteKey(carried), [...ours, ...incoming]);
+    } catch {
+      // A bad trail costs the trail, never the payment.
+    }
   }
 
   // --- paying -------------------------------------------------------------------
@@ -562,6 +727,8 @@ export class Pocket implements HandoffServer {
 
     // 2. Sign it. The node keeps it as our own until it is handed over.
     const bundle = this.node.originate(note);
+    const here = this.here();
+    if (here) this.addPoints(bundle, hash, [pointAt(0, "sent", this.me.toBase58(), here)]);
     this.log("signed", `You signed ${formatAmount(bundle).text} for ${shorten(req.to)}.`, shorten(req.to));
     this.changed();
     await this.persist().catch(() => {});
@@ -606,6 +773,7 @@ export class Pocket implements HandoffServer {
       if (this.node.holds(s.hash)) this.node.release(s.hash);
       const passed = this.passedLog.find((p) => p.hash === s.hash);
       if (passed) passed.settled = true;
+      this.routeSettled(s.hash);
       this.log("settled-elsewhere", `Your payment to ${shorten(s.to)} settled.`, shorten(s.to));
     }
     if (landed.length || !prev || prev.fetchedAt !== fresh.fetchedAt) {
@@ -641,6 +809,7 @@ export class Pocket implements HandoffServer {
       const v = verdict(b.note.slotIndex, key);
       if (v === "open") continue;
       this.node.release(key);
+      if (v === "ours") this.routeSettled(key);
       n += 1;
       if (v === "other") {
         this.log(
@@ -661,6 +830,7 @@ export class Pocket implements HandoffServer {
     for (const p of this.passedLog) {
       if (p.settled || p.pouch !== pouch || p.epoch !== epoch || verdict(p.slot, p.hash) !== "ours") continue;
       p.settled = true;
+      this.routeSettled(p.hash);
       n += 1;
       const amount = formatAmount({ owner: new PublicKey(p.owner), note: { pouch: new PublicKey(p.pouch), amount: BigInt(p.amount) } } as Bundle).text;
       this.log(
@@ -682,6 +852,9 @@ export class Pocket implements HandoffServer {
   settledHere(bundle: Bundle, signatures: string[]): SettlementReceipt {
     const key = noteKey(bundle);
     const split = splitPayout(bundle.note.amount, bundle.note.relayFeeBps, bundle.hops.length);
+    const here = this.here();
+    if (here) this.addPoints(bundle, key, [pointAt(bundle.hops.length + 1, "settled", this.me.toBase58(), here)]);
+    this.routeSettled(key);
     this.node.release(key);
     this.signedLog = this.signedLog.map((s) => (s.hash === key ? { ...s, settled: true } : s));
     const receipt: SettlementReceipt = {
@@ -727,7 +900,11 @@ export class Pocket implements HandoffServer {
 
   // --- disk -----------------------------------------------------------------
 
-  /** Write the pocket atomically (temp file, then move). Writes are serialised. */
+  /**
+   * Write the pocket atomically (temp file, then move), and the routes to
+   * their own file if they changed. Writes are serialised. The promise is the
+   * pocket's write; a failed routes write only leaves them to the next one.
+   */
   persist(): Promise<void> {
     const snapshot: PocketFile = {
       v: 2,
@@ -735,6 +912,7 @@ export class Pocket implements HandoffServer {
       met: [...this.met],
       onboarded: this.onboarded,
       tipsOff: this.tipsOff,
+      mapOn: this.mapOn,
       touched: Object.fromEntries([...this.touched].map(([k, e]) => [k, e.toString()])),
       pouch: this.pouchCache,
       slots: this.slots,
@@ -745,8 +923,49 @@ export class Pocket implements HandoffServer {
     };
     const text = JSON.stringify(snapshot);
     const run = () => this.store.write(text);
-    this.writing = this.writing.then(run, run);
-    return this.writing;
+    const written = this.writing.then(run, run);
+    this.writing = written;
+    const routes = this.routeStore;
+    if (routes && this.routesDirty) {
+      this.routesDirty = false;
+      const list = pruneRoutes([...this.routeLog.values()]).filter((r) => r.points.length > 0);
+      const routesText = JSON.stringify({ v: 1, routes: list });
+      const runRoutes = () =>
+        routes.write(routesText).catch(() => {
+          this.routesDirty = true;
+        });
+      this.writing = written.then(runRoutes, runRoutes);
+    }
+    return written;
+  }
+
+  /**
+   * The routes, from their own file, or once from the `trails` of a pocket
+   * saved before they had one. A bad routes file costs the routes only.
+   */
+  private async restoreRoutes(legacy: unknown): Promise<boolean> {
+    let text: string | null = null;
+    try {
+      text = this.routeStore ? await this.routeStore.read() : null;
+    } catch {
+      text = null;
+    }
+    let migrate = false;
+    let list: StoredRoute[] = [];
+    if (text !== null) {
+      try {
+        list = parseRoutes((JSON.parse(text) as { routes?: unknown } | null)?.routes);
+      } catch {
+        list = [];
+      }
+    } else if (legacy !== undefined) {
+      list = parseRoutes(legacy);
+      migrate = this.routeStore !== null;
+    }
+    this.routeLog = new Map(list.filter((r) => r.points.length > 0).map((r) => [r.id, r]));
+    // Write the routes to their own file, and the pocket without `trails`.
+    if (migrate) this.routesDirty = true;
+    return migrate;
   }
 
   private async restore(): Promise<RestoreReport> {
@@ -774,6 +993,8 @@ export class Pocket implements HandoffServer {
     // A v1 pocket belongs to someone who already used the app.
     this.onboarded = v === 1 ? true : file.onboarded === true;
     this.tipsOff = file.tipsOff === true;
+    this.mapOn = file.mapOn === true;
+    const migrated = await this.restoreRoutes(file.trails);
     this.pouchCache = parseCached(file.pouch);
     this.slots = {};
     if (file.slots && typeof file.slots === "object") {
@@ -831,7 +1052,7 @@ export class Pocket implements HandoffServer {
       }
       restored += 1;
     }
-    if (dropped || v === 1) await this.persist();
+    if (dropped || v === 1 || migrated) await this.persist();
     return { restored, dropped };
   }
 

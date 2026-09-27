@@ -4,12 +4,13 @@ import { C, R, SHADOW } from "../theme";
 import { FONT } from "./fonts";
 import { ease, spring, useReducedMotion } from "./kit";
 
-/** The three tabs. Icons are drawn with plain views. */
-export type Tab = "carry" | "around" | "you";
+/** The four tabs. Icons are drawn with plain views. */
+export type Tab = "carry" | "around" | "map" | "you";
 
 const TABS: [Tab, string][] = [
   ["carry", "Carry"],
   ["around", "Around"],
+  ["map", "Map"],
   ["you", "You"],
 ];
 
@@ -30,11 +31,23 @@ function Icon({ tab, colour }: { tab: Tab; colour: string }) {
       </View>
     );
   }
+  if (tab === "map") return <MapGlyph colour={colour} />;
   // a person
   return (
     <View style={ic.person}>
       <View style={[ic.head, { borderColor: colour }]} />
       <View style={[ic.body, { borderColor: colour }]} />
+    </View>
+  );
+}
+
+/** A folded paper map: three panels, the middle one standing proud. Also on "See where it went". */
+export function MapGlyph({ colour }: { colour: string }) {
+  return (
+    <View style={ic.map}>
+      <View style={[ic.panel, ic.panelSide, { borderColor: colour, borderTopLeftRadius: 2, borderBottomLeftRadius: 2 }]} />
+      <View style={[ic.panel, { borderColor: colour, marginHorizontal: -1.8 }]} />
+      <View style={[ic.panel, ic.panelSide, { borderColor: colour, borderTopRightRadius: 2, borderBottomRightRadius: 2 }]} />
     </View>
   );
 }
@@ -46,6 +59,9 @@ const ic = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3 },
   person: { width: 20, height: 20, alignItems: "center" },
   head: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.8, marginTop: 1 },
+  map: { width: 21, height: 17, flexDirection: "row", alignItems: "flex-start" },
+  panel: { width: 8.2, height: 14.5, borderWidth: 1.8 },
+  panelSide: { marginTop: 2.5 },
   body: { width: 15, height: 8, borderTopLeftRadius: 8, borderTopRightRadius: 8, borderWidth: 1.8, borderBottomWidth: 0, marginTop: 2 },
 });
 

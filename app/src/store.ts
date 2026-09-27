@@ -11,13 +11,17 @@ import type { PocketStore } from "./pocket";
  * refuses to move onto an existing file, so there the old one is deleted
  * first; a crash in that gap leaves only the complete temp file, which `read`
  * falls back to.
+ *
+ * `side("routes")` is the same kind of file next to it (`routes.json`), so
+ * the spread map's trails are only rewritten when they change.
  */
-export function fileStore(): PocketStore {
+export function fileStore(name = "pocket"): PocketStore {
   if (!FileSystem.documentDirectory) throw new Error("no document directory to keep notes in");
   const dir = `${FileSystem.documentDirectory}carrier/`;
-  const file = `${dir}pocket.json`;
-  const tmp = `${dir}pocket.json.tmp`;
+  const file = `${dir}${name}.json`;
+  const tmp = `${dir}${name}.json.tmp`;
   return {
+    side: (other: string) => fileStore(other),
     async read() {
       if ((await FileSystem.getInfoAsync(file)).exists) return FileSystem.readAsStringAsync(file);
       if ((await FileSystem.getInfoAsync(tmp)).exists) return FileSystem.readAsStringAsync(tmp);

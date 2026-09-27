@@ -77,6 +77,13 @@ export const C = {
   onNight2: "#B9BCC4",
   nightAmber: "#F7C27A",
 
+  /** The preview's drawn campus map (a phone draws OpenFreeMap's Positron instead). */
+  mapLand: "#EFEEE9",
+  mapBuilding: "#E1DED6",
+  mapPark: "#D8E8CF",
+  mapWater: "#CDE0EE",
+  mapCasing: "#DDDAD2",
+
   /** The only translucent colour: the scrim behind a sheet. Nothing is written on it. */
   scrim: "rgba(15, 18, 24, 0.45)",
 } as const;
@@ -204,6 +211,11 @@ export const CONTRAST_PAIRS: readonly { fg: keyof typeof C; bg: keyof typeof C; 
   { fg: "onNight2", bg: "night", use: "rank-up text", min: 4.5 },
   { fg: "nightAmber", bg: "night", use: "NEW RANK", min: 4.5 },
   { fg: "onInk", bg: "night2", use: "keep going button", min: 4.5 },
+  // map
+  { fg: "ink2", bg: "mapLand", use: "place names on the preview map", min: 4.5 },
+  { fg: "ink2", bg: "mapBuilding", use: "place names on a building", min: 4.5 },
+  { fg: "greenInk", bg: "mapPark", use: "names of grounds on the preview map", min: 4.5 },
+  { fg: "slipInk", bg: "slip", use: "You on a map pin", min: 4.5 },
   // key tag
   { fg: "kraftInk", bg: "kraft", use: "device key", min: 4.5 },
 ];
