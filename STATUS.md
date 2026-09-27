@@ -18,12 +18,18 @@ nothing.
 | Mesh | `npx vitest run --root packages/mesh` | 52/52 |
 | Game / scoring | `npx vitest run --root packages/game` | 30/30 |
 | Settlement client | `npx vitest run --root packages/client` | 42/42 (devnet e2e skipped without `CARRIER_E2E_RPC`) |
-| App logic | `npx vitest run --root app` | 29/29 |
+| App logic (incl. QR handoff codec) | `npx vitest run --root app` | 61/61 |
 | App contrast | `node --experimental-strip-types app/scripts/contrast.ts` | 38/38 pairs AA |
 | Settlement (e2e, local validator) | `./scripts/localnet.sh` | not run since the fixes (no validator in the audit environment); type-checks |
 | Settlement (e2e, devnet) | `./scripts/devnet.sh` | not run; the devnet deployment predates the fixes and must be redeployed |
 | Scripts lint | `bash -n scripts/*.sh && shellcheck scripts/*.sh` | clean |
-| **App on a phone** | two Android phones, or two iPhones (they cannot mix) | **never run** |
+| iPhone build (unsigned, for sideloading) | GitHub Actions `ios-sideload.yml` | builds (Xcode, macOS runner); never installed on a phone |
+| **App on a phone** | radio: two Androids or two iPhones; QR code: any two phones | **never run** |
+
+Between an iPhone and an Android, or with radios off, a payment can be handed
+over by QR code (the receiver shows their key, the giver shows the slip signed
+over to it, the receiver shows a receipt back). It runs in the browser preview
+and its codec is tested; it has not been used with real cameras.
 
 The app type-checks and its transport was exercised against an in-memory fake
 of the radio library, but it has never been built or run on a device. See
