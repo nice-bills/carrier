@@ -147,6 +147,14 @@ describe("pay, hand over, deliver", () => {
     expect(await cy.pocket.pull(link(dee.pocket, cy.key), dee.key)).toHaveLength(0);
     expect(dee.pocket.node.holds(hash)).toBe(true);
     expect(bo.pocket.couldTake(hash)).toBe(true);
+
+    // Still remembered after a restart, even from a pocket file with no logs.
+    const file = JSON.parse((await cy.store.read())!);
+    file.passed = [];
+    const store = memoryStore();
+    await store.write(JSON.stringify(file));
+    const again = await Pocket.open(signer(cy.kp), store);
+    expect(again.pocket.couldTake(hash)).toBe(false);
   });
 
   it("never offers a payment addressed to this phone", async () => {

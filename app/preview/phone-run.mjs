@@ -16,9 +16,10 @@ p.on("console", (m) => { if (m.type() === "error") errs.push(m.text().slice(0, 2
 p.on("response", (r) => { if (r.status() >= 400) errs.push("HTTP " + r.status() + " " + r.url()); });
 p.on("pageerror", (e) => errs.push("PAGEERROR " + e.message.slice(0, 200)));
 let n = 0;
+const failed = [];
 const snap = async (name) => p.screenshot({ path: `${OUT}/${String(++n).padStart(2, "0")}-${name}.png` });
 const step = async (name, fn, wait = 1300) => {
-  try { await fn(); console.log("ok", name); } catch (e) { console.log("FAIL", name, e.message.split("\n")[0]); }
+  try { await fn(); console.log("ok", name); } catch (e) { failed.push(name); console.log("FAIL", name, e.message.split("\n")[0]); }
   await p.waitForTimeout(wait); await snap(name);
 };
 const tapText = (t, o = {}) => p.getByText(t, o).last().tap();
@@ -65,3 +66,7 @@ const btns = await p.getByRole("button").allInnerTexts();
 console.log("buttons:", btns.map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 25).join(" | "));
 console.log("errors:", errs.length, errs.slice(0, 5));
 await ctx.close(); await b.close();
+if (failed.length) {
+  console.error(`${failed.length} step(s) failed: ${failed.join(", ")}`);
+  process.exit(1);
+}
