@@ -6,7 +6,9 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "platforms": ["android"],
+    "platforms": [
+      "android"
+    ],
     "android": {
       "package": "xyz.carrier.mesh",
       "permissions": [
@@ -23,6 +25,16 @@
         "VIBRATE"
       ]
     },
-    "plugins": ["expo-secure-store", "expo-nearby-connections"]
+    "plugins": [
+      "expo-secure-store",
+      "expo-nearby-connections",
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Carrier uses your location, rounded to about 100 m, to show where payments passed hand to hand. Only if you turn the map on."
+        }
+      ]
+    ]
   }
 }
