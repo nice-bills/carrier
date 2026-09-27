@@ -1,11 +1,11 @@
-import { forwardRef } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { forwardRef, useEffect, useRef } from "react";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import type { PublicKey } from "@solana/web3.js";
 import type { FeedEvent } from "../pocket";
 import { ago, shorten, spokenKey } from "../format";
-import { C, S } from "../theme";
+import { C, SHADOW } from "../theme";
 import { FONT } from "../ui/fonts";
-import { Avatar, Mark } from "../ui/kit";
+import { Avatar, Card, Mark, ease, useReducedMotion } from "../ui/kit";
 
 /** A nearby, authenticated phone, as a row you can tap or drop a slip on. */
 export interface PersonInfo {
@@ -29,81 +29,109 @@ export const PersonRow = forwardRef<View, {
   target: boolean;
   onPress: () => void;
   hint: string;
-}>(function PersonRow({ person, selected, target, onPress, hint }, ref) {
+  /** First row in its card: no hairline above it. */
+  first?: boolean;
+}>(function PersonRow({ person, selected, target, onPress, hint, first }, ref) {
   const k = person.key.toBase58();
+  const reduced = useReducedMotion();
+  const on = selected || target;
+  const ring = useRef(new Animated.Value(on ? 1 : 0)).current;
+  useEffect(() => {
+    // The drop target shows at once; a tap fades the ring in.
+    if (target) ring.setValue(1);
+    else ease(ring, selected ? 1 : 0, reduced, 200).start();
+  }, [selected, target, reduced, ring]);
   return (
     <View ref={ref} collapsable={false} style={pr.li}>
+      {first ? null : <View style={pr.hair} />}
+      <Animated.View pointerEvents="none" style={[pr.ring, target && pr.target, { opacity: ring }]} />
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={`${spokenKey(person.key)}, ${personState(person)}${person.met ? ", counts toward your rank" : ""}`}
         accessibilityHint={hint}
         accessibilityState={{ selected }}
-        style={({ pressed }) => [pr.row, selected && pr.selected, target && pr.target, pressed && !target && pr.pressed]}
+        style={({ pressed }) => [pr.row, pressed && !on && pr.pressed]}
       >
         <Avatar text={k.slice(0, 2)} met={person.met} />
         <View style={pr.mid}>
-          <Text style={pr.name}>{shorten(person.key)}</Text>
-          <View style={pr.state}>
-            {person.forThem ? <Mark text="FOR THEM" colour={C.red} rotate={-4} /> : null}
-            {!person.forThem && person.holding ? <View style={pr.mini} /> : null}
-            <Text style={pr.stateText}>{personState(person)}</Text>
-          </View>
+          <Text style={pr.name} numberOfLines={1}>
+            {shorten(person.key)}
+          </Text>
+          <Text style={pr.stateText}>{personState(person)}</Text>
         </View>
-        <Text style={pr.near}>in range</Text>
+        <View>
+          {person.forThem ? (
+            <Mark text="FOR THEM" colour={C.red} />
+          ) : person.holding ? (
+            <Mark text={`Holding ${person.holding}`} tone="amber" />
+          ) : (
+            <Mark text="In range" tone="green" />
+          )}
+        </View>
       </Pressable>
     </View>
   );
 });
 
 const pr = StyleSheet.create({
-  li: { borderBottomWidth: 1, borderColor: C.rule },
+  li: { paddingHorizontal: 6 },
+  hair: { height: 1, backgroundColor: C.rule, marginHorizontal: 12 },
+  ring: {
+    position: "absolute",
+    left: 6,
+    right: 6,
+    top: 3,
+    bottom: 3,
+    borderRadius: 16,
+    backgroundColor: C.amberSoft,
+    borderWidth: 2,
+    borderColor: C.amberRing,
+  },
+  target: { backgroundColor: C.slipWell, borderWidth: 3, borderColor: C.amberRing, ...SHADOW },
   row: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    minHeight: 64,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    marginHorizontal: -8,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: "transparent",
+    minHeight: 68,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginVertical: 3,
+    borderRadius: 16,
   },
-  selected: { borderColor: C.ink },
-  target: { backgroundColor: C.slipWell, borderColor: C.slipDeep },
   pressed: { backgroundColor: C.paper2 },
   mid: { flex: 1 },
-  name: { fontFamily: FONT.mono, fontSize: 16, fontWeight: "700", color: C.ink },
-  state: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 2, flexWrap: "wrap" },
-  stateText: { fontFamily: FONT.face, fontSize: 14, color: C.ink2 },
-  mini: { width: 16, height: 10, borderRadius: 1.5, backgroundColor: C.slip, borderWidth: 1, borderColor: C.slipDeep, transform: [{ rotate: "-8deg" }] },
-  near: { fontFamily: FONT.mono, fontSize: 12, color: C.ink2 },
+  name: { fontFamily: FONT.mono, fontSize: 15, fontWeight: "600", letterSpacing: -0.4, color: C.ink },
+  stateText: { fontFamily: FONT.face, fontSize: 14, color: C.ink2, marginTop: 2 },
 });
 
-/** The list's top rule, and what to say when nobody is there. */
+/** What to say when nobody is there, in the card the list would be in. */
 export function PeopleEmpty({ text }: { text: string }) {
   return (
-    <View style={{ borderTopWidth: 1.5, borderColor: C.ink, paddingTop: S.m }}>
-      <Text style={{ fontFamily: FONT.face, fontSize: 15, lineHeight: 21, color: C.ink2 }}>{text}</Text>
-    </View>
+    <Card>
+      <Text style={{ fontFamily: FONT.face, fontSize: 15, lineHeight: 22, color: C.ink2 }}>{text}</Text>
+    </Card>
   );
 }
 
 /** One line of the logbook: who, what happened, how long ago. */
-export function FeedRow({ e }: { e: FeedEvent }) {
+export function FeedRow({ e, first }: { e: FeedEvent; /** First row in its card: no hairline above it. */ first?: boolean }) {
   const when = ago(Date.now() - e.at);
   return (
-    <View style={fd.row} accessible accessibilityLabel={`${e.text} ${when === "now" ? "Just now" : `${when} ago`}`}>
-      <Avatar text={e.mine ? "Yo" : (e.who ?? "").slice(0, 2)} you={e.mine} size={30} />
-      <Text style={fd.text}>{e.text}</Text>
-      <Text style={fd.time}>{when}</Text>
+    <View accessible accessibilityLabel={`${e.text} ${when === "now" ? "Just now" : `${when} ago`}`}>
+      {first ? null : <View style={fd.hair} />}
+      <View style={fd.row}>
+        <Avatar text={e.mine ? "Yo" : (e.who ?? "").slice(0, 2)} you={e.mine} size={32} />
+        <Text style={fd.text}>{e.text}</Text>
+        <Text style={fd.time}>{when}</Text>
+      </View>
     </View>
   );
 }
 
 const fd = StyleSheet.create({
-  row: { flexDirection: "row", gap: 12, alignItems: "flex-start", paddingVertical: 10, borderBottomWidth: 1, borderColor: C.rule },
-  text: { flex: 1, fontFamily: FONT.face, fontSize: 15, lineHeight: 21, color: C.ink2, paddingTop: 4 },
-  time: { fontFamily: FONT.mono, fontSize: 12, color: C.ink3, paddingTop: 6 },
+  hair: { height: 1, backgroundColor: C.rule, marginHorizontal: 16 },
+  row: { flexDirection: "row", gap: 12, alignItems: "flex-start", paddingVertical: 12, paddingHorizontal: 16 },
+  text: { flex: 1, fontFamily: FONT.face, fontSize: 15, lineHeight: 21, color: C.ink, paddingTop: 5 },
+  time: { fontFamily: FONT.face, fontSize: 13, color: C.ink3, paddingTop: 7 },
 });

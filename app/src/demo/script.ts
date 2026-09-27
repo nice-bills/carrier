@@ -1,6 +1,7 @@
 import { splitPayout } from "../ledger";
 import { formatAmount } from "../amounts";
 import { noteKey } from "../chain";
+import { shorten } from "../format";
 import type { DemoScript } from "../../App";
 import { cast, type DemoOptions } from "./services";
 
@@ -17,6 +18,8 @@ import { cast, type DemoOptions } from "./services";
  *   ?screen=settle                 the settlement receipt for the slip paid to you
  *   ?screen=pouch                  You tab with the pouch setup sheet
  *   ?screen=terms | privacy        the small print
+ *   ?screen=rankup                 the new-rank screen, as if you just became a Carrier
+ *   ?screen=failed                 the sheet for a handoff that did not finish
  *
  * Add `&reduced=1` for reduced motion, `&offline=1` for no signal,
  * `&nopouch=1` for a phone with no pouch, `&alone=1` for nobody in range.
@@ -81,6 +84,15 @@ export function demoFromQuery(query: string): { options: DemoOptions; script: De
       script.tab = "you";
       script.sheet = "pouch";
       options.noPouch = true;
+      break;
+    case "rankup":
+      script.rankUp = q.get("rank") ?? "Carrier";
+      break;
+    case "failed":
+      script.stage = (c) => {
+        const b = c.slips.find((x) => !x.note.to.equals(cast.me.publicKey)) ?? c.slips[0];
+        if (b) c.showHandFailed({ peer: cast.zanele.publicKey, noteHash: noteKey(b), reason: `${shorten(cast.zanele.publicKey)} walked out of range.` });
+      };
       break;
     case "terms":
     case "privacy":

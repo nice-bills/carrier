@@ -18,7 +18,13 @@ p.on("pageerror", (e) => errs.push("PAGEERROR " + e.message.slice(0, 200)));
 let n = 0;
 const failed = [];
 const snap = async (name) => p.screenshot({ path: `${OUT}/${String(++n).padStart(2, "0")}-${name}.png` });
+// A new rank opens a full-screen moment; keep a picture of it, then carry on.
+const pastRankUp = async () => {
+  const k = p.getByText("Keep going", { exact: true });
+  if (await k.count() && await k.last().isVisible()) { await snap("rank-up"); await k.last().click(); await p.waitForTimeout(900); }
+};
 const step = async (name, fn, wait = 1300) => {
+  await pastRankUp();
   try { await fn(); console.log("ok", name); } catch (e) { failed.push(name); console.log("FAIL", name, e.message.split("\n")[0]); }
   await p.waitForTimeout(wait); await snap(name);
 };
@@ -39,7 +45,7 @@ await step("stop tips", () => tapText("Got it, stop the tips", { exact: true }))
 // Real touch drag of the slip onto the first person, via CDP touch events.
 await step("drag slip", async () => {
   const cdp = await ctx.newCDPSession(p);
-  const slip = await p.getByText("drag me onto someone").boundingBox();
+  const slip = await p.getByText("Drag onto someone, or tap them").boundingBox();
   const who = await p.getByText("Fr9T…d7Pp").last().boundingBox();
   const pt = (x, y) => [{ x, y, id: 1 }];
   const sx = slip.x + slip.width / 2, sy = slip.y - 60, tx = who.x + 40, ty = who.y + who.height / 2;
@@ -50,13 +56,25 @@ await step("drag slip", async () => {
 }, 1500);
 const texts = async (l) => console.log(l, (await p.getByRole("button").allInnerTexts()).map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean).join(" | "));
 await texts("after drag:");
-await step("confirm hand", () => p.getByText(/^Hand (it )?over|^Sign and hand/).last().tap(), 2500);
+await step("confirm hand", () => p.getByText(/^(Hand over|Deliver) /).last().tap(), 2500);
 await texts("after hand:");
-await step("pick", () => p.getByText("8Etn…DHKs").first().tap());
-await step("pay", () => p.getByText(/^Pay 8Etn/).last().tap());
-await step("amount", async () => { await p.getByPlaceholder("0.00").tap(); await p.keyboard.type("5"); });
+await step("pay", () => tapText("Pay", { exact: true }));
+await step("pick", () => p.getByText("8Etn…DHKs").last().tap());
+await step("amount", () => tapText("5", { exact: true }));
 await step("next", () => tapText("Next", { exact: true }));
-await step("sign pay", () => p.getByText(/Sign and hand over/).last().tap(), 2500);
+// The sign button is press-and-hold: keep a finger on it until it fills.
+const hold = async (text) => {
+  const box = await p.getByText(text).last().boundingBox();
+  const cdp = await ctx.newCDPSession(p);
+  const pt = [{ x: box.x + box.width / 2, y: box.y + box.height / 2, id: 1 }];
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pt });
+  await p.waitForTimeout(600); await snap("holding");
+  await p.waitForTimeout(700);
+  // The sheet has closed under the finger by now. A browser would turn a plain
+  // lift into a click on whatever is underneath, which a phone does not do.
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+};
+await step("sign pay", () => hold(/^Hold to sign|^Keep holding/), 2500);
 await texts("after pay:");
 await step("around", () => tapText("Around", { exact: true }), 1500);
 await step("you", () => tapText("You", { exact: true }), 1500);

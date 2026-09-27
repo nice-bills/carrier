@@ -1,9 +1,26 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { shorten } from "../format";
-import { C, S } from "../theme";
+import { C, R, S } from "../theme";
 import { FONT } from "../ui/fonts";
-import { Avatar, Button, KeyTag, LinkButton, Mark, Receipt, Rule, SettledStamp, Stamp, announce, useReducedMotion } from "../ui/kit";
+import {
+  Appear,
+  Avatar,
+  Button,
+  Card,
+  KeyTag,
+  LinkButton,
+  Mark,
+  Receipt,
+  Rule,
+  SettledStamp,
+  Stamp,
+  announce,
+  spring,
+  type,
+  useReducedMotion,
+} from "../ui/kit";
+import { useDock } from "../ui/chrome";
 import type { Carrier } from "../useCarrier";
 import { PeopleEmpty, PersonRow } from "./People";
 import { radioLine } from "./radioLine";
@@ -29,6 +46,7 @@ export function Onboarding({
   setStep: (n: number) => void;
   onLegal: (which: "terms" | "privacy") => void;
 }) {
+  const onDock = useDock();
   const [perm, setPerm] = useState<Perm>("unset");
   const [making, setMaking] = useState(false);
   const [signed, setSigned] = useState(false);
@@ -84,7 +102,7 @@ export function Onboarding({
     <View style={{ flex: 1 }}>
       <View style={s.top}>
         {step > 0 ? (
-          <Pressable onPress={() => setStep(step - 1)} accessibilityRole="button" accessibilityLabel="Back" style={s.back}>
+          <Pressable onPress={() => setStep(step - 1)} accessibilityRole="button" accessibilityLabel="Back" style={({ pressed }) => [s.back, pressed && { opacity: 0.6 }]}>
             <Text style={s.backText}>Back</Text>
           </Pressable>
         ) : (
@@ -92,7 +110,7 @@ export function Onboarding({
         )}
         <View style={s.progress} accessible accessibilityLabel={`Step ${step + 1} of ${STEPS}`}>
           {Array.from({ length: STEPS }, (_, i) => (
-            <View key={i} style={[s.pip, i % 2 ? { transform: [{ rotate: "3deg" }] } : null, i <= step && s.pipDone]} />
+            <View key={i} style={[s.pip, i <= step && s.pipDone]} />
           ))}
         </View>
         <Text style={s.count} importantForAccessibility="no">
@@ -108,7 +126,7 @@ export function Onboarding({
         {step === 4 ? <FirstHandoff c={c} /> : null}
       </ScrollView>
 
-      <View style={s.dock}>
+      <View style={s.dock} onLayout={onDock}>
         <Button label={primary.label} busy={"busy" in primary ? primary.busy : false} disabled={"disabled" in primary ? primary.disabled : false} onPress={next} />
         {step === 1 && perm === "unset" ? (
           <Button
@@ -139,13 +157,13 @@ const TITLES = [
   "Make your first handoff",
 ];
 
-function Scrawl({ text }: { text: string }) {
-  return <Text style={s.scrawl}>{text}</Text>;
+function Kicker({ text }: { text: string }) {
+  return <Text style={[type.label, { marginBottom: 6 }]}>{text}</Text>;
 }
 
-function H2({ children, hero }: { children: ReactNode; hero?: boolean }) {
+function H2({ children }: { children: ReactNode }) {
   return (
-    <Text style={[s.h2, hero && s.hero]} accessibilityRole="header">
+    <Text style={s.h2} accessibilityRole="header">
       {children}
     </Text>
   );
@@ -162,9 +180,10 @@ const WALK = [
   ["Am", "Ama", "sends"],
   ["Ch", "Chidi", "carries"],
   ["Me", "Mei", "carries"],
-  ["Tu", "Tunde", "gets signal"],
+  ["Tu", "Tunde", "finds signal"],
   ["Za", "Zanele", "is paid"],
 ] as const;
+const HERO = ["Money that", "travels", "by hand."];
 
 function Welcome() {
   const reduced = useReducedMotion();
@@ -177,58 +196,92 @@ function Welcome() {
     const t = setTimeout(() => setAt((a) => (a >= 4 ? 0 : a + 1)), at === 4 ? 3600 : 1900);
     return () => clearTimeout(t);
   }, [at, reduced]);
+  const slide = useRef(new Animated.Value(reduced ? 0 : 1)).current;
+  useEffect(() => {
+    if (reduced) {
+      slide.setValue(0);
+      return;
+    }
+    Animated.sequence([Animated.delay(450), spring(slide, 0, false, 6)]).start();
+  }, [reduced, slide]);
   const shown = Math.min(at, 3) + 1;
   return (
     <View>
-      <View style={s.wordmark}>
-        <View style={s.glyph} />
-        <Text style={s.wordText}>Carrier</Text>
+      <Appear from={6}>
+        <View style={s.wordmark}>
+          <View style={s.glyph} />
+          <Text style={s.wordText}>Carrier</Text>
+        </View>
+      </Appear>
+      <View accessible accessibilityRole="header" accessibilityLabel="Money that travels by hand." style={{ marginBottom: 12 }}>
+        {HERO.map((line, i) => (
+          <Appear key={line} delay={100 + i * 120} from={18}>
+            <Text style={s.hero}>{line}</Text>
+          </Appear>
+        ))}
       </View>
-      <H2 hero>
-        Money that travels <Text style={s.underline}>{"by\u00a0hand"}</Text>
-      </H2>
-      <Text style={s.p}>
-        Pay someone when nobody has signal. The payment passes from phone to phone, and the first phone to get back online settles it.
-        Everyone who carried it gets a share.
-      </Text>
+      <Appear delay={450} from={10}>
+        <Text style={s.p}>
+          Pay someone when nobody has signal. The payment passes from phone to phone, and the first phone to get back online settles it.
+          Everyone who carried it gets a share.
+        </Text>
+      </Appear>
       <View
         accessible
         accessibilityLabel="Ama signs a payment of 12.00 for Zanele with no signal. Chidi and then Mei carry it, and each handoff adds a stamp signed by both phones. When Tunde finds signal the chain settles on Solana: Zanele is paid, and Chidi, Mei and Tunde each receive a share."
-        style={{ marginTop: 18 }}
+        style={{ marginTop: 4 }}
       >
-        <View style={s.demoSlip}>
-          <View style={{ paddingHorizontal: 18, paddingTop: 10, height: 70 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={s.demoFor}>
-                For <Text style={{ fontWeight: "800", color: C.slipInk }}>Zanele</Text>
-              </Text>
-              <Text style={s.demoFrom}>from Ama</Text>
-            </View>
+        <Animated.View
+          style={[
+            s.demoSlip,
+            { opacity: slide.interpolate({ inputRange: [0, 0.8, 1], outputRange: [1, 1, 0] }), transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [0, 320] }) }] },
+          ]}
+        >
+          <View style={s.demoHead}>
+            <Text style={s.demoFor}>
+              For <Text style={{ fontWeight: "700", color: C.slipInk }}>Zanele</Text> · from Ama
+            </Text>
             <Text style={s.demoAmt}>
               12.00<Text style={s.demoUnit}> USDC</Text>
             </Text>
           </View>
-          <View style={s.demoPerf} />
+          <View style={s.perfRow}>
+            <View style={[s.notch, { left: -9 }]} />
+            <View style={s.perf}>
+              {Array.from({ length: 28 }, (_, i) => (
+                <View key={i} style={s.perfDot} />
+              ))}
+            </View>
+            <View style={[s.notch, { right: -9 }]} />
+          </View>
           <View style={s.demoStamps}>
             {["Ama", "Chidi", "Mei", "Tunde"].slice(0, shown).map((n, i) => (
-              <View key={n} style={i ? { marginLeft: -7 } : null}>
-                <Stamp top={n.toUpperCase()} mid={`1${i}:${i * 2}4`} bottom={i ? `HOP ${i}` : "SENT"} seed={n} size={56} />
+              <View key={n} style={i ? { marginLeft: 6 } : null}>
+                <Stamp top={n.toUpperCase()} mid={`1${i}:${i * 2}4`} bottom={i ? `HOP ${i}` : "SENT"} seed={n} size={52} fresh={!reduced} />
               </View>
             ))}
           </View>
           {at >= 3 ? (
-            <View style={{ position: "absolute", right: 10, bottom: 18 }}>
+            <View style={{ position: "absolute", right: 14, bottom: 22 }}>
               <SettledStamp size={15} animate={!reduced} key={at === 3 ? "slam" : "still"} />
             </View>
           ) : null}
-        </View>
+        </Animated.View>
         <View style={s.walk}>
-          <View style={s.walkLine} />
           {WALK.map(([ab, name, role], i) => (
-            <View key={name} style={s.walker}>
-              <Avatar text={ab} met={i < at || (at >= 4 && i === 4)} size={36} />
-              <Text style={s.walkName}>{name}</Text>
-              <Text style={s.walkRole}>{role}</Text>
+            <View key={name} style={s.walkStep}>
+              {i > 0 ? <Conn on={at >= i} /> : null}
+              <View style={s.walker}>
+                {i === 4 && at >= 4 ? (
+                  <View style={s.paid}>
+                    <Text style={s.paidText}>{ab}</Text>
+                  </View>
+                ) : (
+                  <Avatar text={ab} met={i <= at && i < 4} size={40} />
+                )}
+                <Text style={s.walkName}>{name}</Text>
+                <Text style={s.walkRole}>{role}</Text>
+              </View>
             </View>
           ))}
         </View>
@@ -241,31 +294,50 @@ function Welcome() {
   );
 }
 
+/** The line between two people on the walk; it fills in ink once the slip has passed. */
+function Conn({ on }: { on: boolean }) {
+  const reduced = useReducedMotion();
+  const w = useRef(new Animated.Value(on ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(w, { toValue: on ? 1 : 0, duration: reduced ? 0 : on ? 320 : 180, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+  }, [on, reduced, w]);
+  return (
+    <View style={s.conn}>
+      <Animated.View style={[s.connFill, { width: w.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }) }]} />
+    </View>
+  );
+}
+
 function Radio({ perm }: { perm: Perm }) {
   const state = perm === "granted" ? "ALLOWED" : perm === "denied" ? "OFF" : "NOT ASKED";
-  const colour = perm === "granted" ? C.green : perm === "denied" ? C.red : C.ink3;
+  const tone = perm === "granted" ? "green" : perm === "denied" ? "red" : "grey";
   return (
     <View>
-      <Scrawl text="first, the radio" />
+      <Kicker text="First, the radio" />
       <H2>Let Carrier find phones near you</H2>
       <Text style={s.p}>Handoffs travel over local radio, about as far as you could pass something across a room.</Text>
-      <View style={s.perm}>
+      <Card pad={false} style={{ paddingHorizontal: 18 }}>
         {(
           [
             ["Nearby devices", "Bluetooth and Wi-Fi Direct, to see phones within about 10 metres and hand payments to them.", null],
-            ["Location", "Android requires it before any app may scan for other phones.", "we never look at where you are"],
+            ["Location", "Android requires it before any app may scan for other phones.", "We never look at where you are."],
           ] as const
-        ).map(([b, why, aside]) => (
-          <View key={b} style={s.permRow} accessible accessibilityLabel={`${b}: ${why} ${aside ? `Carrier never reads your location.` : ""} ${state.toLowerCase()}.`}>
+        ).map(([b, why, aside], i) => (
+          <View
+            key={b}
+            style={[s.permRow, i > 0 && s.permSep]}
+            accessible
+            accessibilityLabel={`${b}: ${why} ${aside ? `Carrier never reads your location.` : ""} ${state.toLowerCase()}.`}
+          >
             <View style={{ flex: 1 }}>
               <Text style={s.permB}>{b}</Text>
               <Text style={s.permWhy}>{why}</Text>
               {aside ? <Text style={s.permAside}>{aside}</Text> : null}
             </View>
-            <Mark text={state} colour={colour} rotate={perm === "granted" ? -5 : perm === "denied" ? 4 : 0} />
+            <Mark text={state} tone={tone} />
           </View>
         ))}
-      </View>
+      </Card>
       {perm !== "unset" ? (
         <Text style={s.after} accessibilityLiveRegion="polite">
           {perm === "granted"
@@ -280,7 +352,7 @@ function Radio({ perm }: { perm: Perm }) {
 function Key({ keyText, making }: { keyText: string | null; making: boolean }) {
   return (
     <View>
-      <Scrawl text="then, your key" />
+      <Kicker text="Then, your key" />
       <H2>This phone gets its own key</H2>
       <Text style={s.p}>It signs every handoff you make. It is made on this phone and never leaves it. No account, no password.</Text>
       <KeyTag keyText={keyText} making={making} />
@@ -297,38 +369,45 @@ function Terms({ signed, setSigned, onLegal }: { signed: boolean; setSigned: (v:
   ];
   return (
     <View>
-      <Scrawl text="last thing, promise" />
+      <Kicker text="Last thing" />
       <H2>Sign for it</H2>
-      <Receipt title="CARRIER · TERMS" subtitle="DEVNET BUILD · 23 SEP 2026">
+      <Receipt title="Carrier terms" subtitle="Devnet build · 23 Sep 2026" style={{ paddingBottom: 16 }}>
         {items.map(([a, b, c2], i) => (
           <View key={i} style={s.term}>
-            <Text style={s.termN}>{String(i + 1).padStart(2, "0")}</Text>
+            <View style={s.termN}>
+              <Text style={s.termNText}>{i + 1}</Text>
+            </View>
             <Text style={s.termText}>
               {a}
-              <Text style={{ fontWeight: "800", color: C.receiptInk }}>{b}</Text>
+              <Text style={{ fontWeight: "700", color: C.ink }}>{b}</Text>
               {c2}
             </Text>
           </View>
         ))}
         <Rule />
         <View style={{ flexDirection: "row", gap: 18 }}>
-          <LinkButton label="Terms of use" onPress={() => onLegal("terms")} color={C.receiptInk} />
-          <LinkButton label="Privacy policy" onPress={() => onLegal("privacy")} color={C.receiptInk} />
+          <LinkButton label="Terms of use" onPress={() => onLegal("terms")} color={C.ink} />
+          <LinkButton label="Privacy policy" onPress={() => onLegal("privacy")} color={C.ink} />
         </View>
         <View style={s.pad}>
           <Text style={s.x}>×</Text>
-          {signed ? <Text style={s.sig}>signed on this phone</Text> : null}
+          {signed ? (
+            <Appear from={4}>
+              <Text style={s.sig}>Signed on this phone</Text>
+            </Appear>
+          ) : null}
         </View>
-        <Text style={s.cap}>SIGNED ON THIS PHONE</Text>
+        <Text style={s.cap}>Signature</Text>
         <Pressable
           onPress={() => setSigned(!signed)}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: signed }}
           accessibilityLabel="Sign to agree"
           accessibilityHint={signed ? "Signed. Tap to undo." : "Agrees to the four points above"}
-          style={[s.signBtn, signed && s.signBtnOn]}
+          style={({ pressed }) => [s.signBtn, signed && s.signBtnOn, pressed && { opacity: 0.85 }]}
         >
-          <Text style={[s.signText, signed && { color: C.receipt }]}>{signed ? "Signed. Tap to undo" : "Sign to agree"}</Text>
+          <View style={[s.box, signed && s.boxOn]}>{signed ? <View style={s.boxTick} /> : null}</View>
+          <Text style={[s.signText, signed && { color: C.onInk }]}>{signed ? "Signed. Tap to undo" : "Sign to agree"}</Text>
         </Pressable>
       </Receipt>
     </View>
@@ -339,7 +418,7 @@ function FirstHandoff({ c }: { c: Carrier }) {
   const pocket = c.pocket;
   return (
     <View>
-      <Scrawl text="now, for real" />
+      <Kicker text="Now, for real" />
       <H2>{c.firstHandoff ? "Stamped. That was a real handoff." : "Make your first handoff"}</H2>
       <Text style={s.p}>
         {c.firstHandoff
@@ -350,14 +429,15 @@ function FirstHandoff({ c }: { c: Carrier }) {
         {radioLine(c.radio, c.peers.length)}
       </Text>
       {c.peers.length && pocket ? (
-        <View style={{ borderTopWidth: 1.5, borderColor: C.ink }}>
-          {c.peers.map((key) => {
+        <Card pad={false} style={{ paddingVertical: 4, overflow: "hidden" }}>
+          {c.peers.map((key, i) => {
             const k = key.toBase58();
             const holding = c.holdings[k] ?? 0;
             return (
               <View key={k}>
                 <PersonRow
                   person={{ key, met: pocket.hasMet(key), holding, forThem: false }}
+                  first={i === 0}
                   selected={false}
                   target={false}
                   hint={holding ? "Takes their payment" : "They have nothing to hand you yet"}
@@ -366,7 +446,7 @@ function FirstHandoff({ c }: { c: Carrier }) {
               </View>
             );
           })}
-        </View>
+        </Card>
       ) : (
         <PeopleEmpty text="Nobody in range yet. Hold your phone near someone else with Carrier open." />
       )}
@@ -380,53 +460,75 @@ function FirstHandoff({ c }: { c: Carrier }) {
 }
 
 const s = StyleSheet.create({
-  top: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingTop: 6, minHeight: 52 },
+  top: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingTop: 8, minHeight: 56 },
   back: { minWidth: 64, minHeight: 48, justifyContent: "center", paddingHorizontal: 8 },
-  backText: { fontFamily: FONT.face, fontSize: 15, fontWeight: "700", color: C.ink2 },
-  progress: { flexDirection: "row", gap: 7 },
-  pip: { width: 24, height: 12, borderRadius: 2, borderWidth: 1.5, borderStyle: "dashed", borderColor: C.ink3, transform: [{ rotate: "-4deg" }] },
-  pipDone: { backgroundColor: C.slip, borderStyle: "solid", borderColor: C.slipDeep },
-  count: { minWidth: 64, textAlign: "right", paddingRight: 8, fontFamily: FONT.mono, fontSize: 12, color: C.ink2 },
-  body: { paddingHorizontal: S.xl, paddingTop: 18, paddingBottom: 12 },
+  backText: { fontFamily: FONT.face, fontSize: 15, fontWeight: "600", color: C.ink2 },
+  progress: { flexDirection: "row", gap: 6 },
+  pip: { width: 26, height: 6, borderRadius: R.pill, backgroundColor: C.paper2 },
+  pipDone: { backgroundColor: C.slip },
+  count: { minWidth: 64, textAlign: "right", paddingRight: 8, fontFamily: FONT.face, fontSize: 13, fontWeight: "500", color: C.ink2 },
+  body: { paddingHorizontal: S.gutter, paddingTop: 14, paddingBottom: 12 },
   dock: { paddingHorizontal: S.gutter, paddingTop: 10, paddingBottom: 16, gap: 8 },
   foot: { fontFamily: FONT.face, fontSize: 13, color: C.ink3, textAlign: "center" },
-  scrawl: { fontFamily: FONT.hand, fontWeight: "700", fontSize: 17, color: C.red, marginBottom: 4, transform: [{ rotate: "-2deg" }] },
-  h2: { fontFamily: FONT.face, fontSize: 31, fontWeight: "800", letterSpacing: -1.2, lineHeight: 33, color: C.ink, marginBottom: 10 },
-  hero: { fontSize: 44, lineHeight: 44, letterSpacing: -2, marginBottom: 14 },
-  underline: { textDecorationLine: "underline", textDecorationColor: C.red },
+  h2: { fontFamily: FONT.face, fontSize: 30, fontWeight: "800", letterSpacing: -0.8, lineHeight: 35, color: C.ink, marginBottom: 10 },
+  hero: { fontFamily: FONT.face, fontSize: 42, fontWeight: "800", letterSpacing: -1.4, lineHeight: 45, color: C.ink },
   p: { fontFamily: FONT.face, fontSize: 16, lineHeight: 23, color: C.ink2, marginBottom: 18 },
-  wordmark: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 20, marginTop: 4 },
-  glyph: { width: 30, height: 19, borderRadius: 2, backgroundColor: C.slip, transform: [{ rotate: "-6deg" }] },
-  wordText: { fontFamily: FONT.face, fontSize: 17, fontWeight: "800", color: C.ink },
-  demoSlip: { backgroundColor: C.slip, borderRadius: 4, transform: [{ rotate: "-2deg" }], maxWidth: 330, alignSelf: "center", width: "100%" },
-  demoFor: { fontFamily: FONT.face, fontSize: 14, color: C.slipInk2 },
-  demoFrom: { fontFamily: FONT.mono, fontSize: 12, color: C.slipInk2 },
-  demoAmt: { fontFamily: FONT.mono, fontSize: 32, fontWeight: "700", letterSpacing: -1.5, color: C.slipInk },
-  demoUnit: { fontSize: 14, fontWeight: "600", color: C.slipInk2, letterSpacing: 0 },
-  demoPerf: { marginHorizontal: 16, borderTopWidth: 2, borderStyle: "dashed", borderColor: C.slipInk2 },
-  demoStamps: { flexDirection: "row", paddingHorizontal: 14, paddingTop: 12, paddingBottom: 12, minHeight: 88, alignItems: "center" },
-  walk: { flexDirection: "row", justifyContent: "space-between", marginTop: 22 },
-  walkLine: { position: "absolute", left: "10%", right: "10%", top: 17, borderTopWidth: 2, borderStyle: "dashed", borderColor: C.ruleStrong },
-  walker: { alignItems: "center", gap: 3, flex: 1 },
-  walkName: { fontFamily: FONT.face, fontSize: 13, fontWeight: "700", color: C.ink2 },
-  walkRole: { fontFamily: FONT.face, fontSize: 12, color: C.ink3 },
+  wordmark: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 22, marginTop: 4 },
+  glyph: { width: 26, height: 18, borderRadius: 5, backgroundColor: C.slip },
+  wordText: { fontFamily: FONT.face, fontSize: 18, fontWeight: "700", color: C.ink },
+  demoSlip: { backgroundColor: C.slip, borderRadius: 20, width: "100%", alignSelf: "center", maxWidth: 380 },
+  demoHead: { paddingHorizontal: 18, paddingTop: 16 },
+  demoFor: { fontFamily: FONT.face, fontSize: 14, fontWeight: "500", color: C.slipInk2 },
+  demoAmt: { fontFamily: FONT.face, fontSize: 40, fontWeight: "800", letterSpacing: -1.4, color: C.slipInk, marginTop: 4 },
+  demoUnit: { fontSize: 15, fontWeight: "600", color: C.slipInk2, letterSpacing: 0 },
+  perfRow: { height: 18, justifyContent: "center", marginTop: 8 },
+  perf: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 16 },
+  perfDot: { width: 4, height: 2, borderRadius: 1, backgroundColor: C.slipDeep },
+  notch: { position: "absolute", top: 0, width: 18, height: 18, borderRadius: 9, backgroundColor: C.paper },
+  demoStamps: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 6, paddingBottom: 16, minHeight: 80, alignItems: "center" },
+  walk: { flexDirection: "row", marginTop: 22 },
+  walkStep: { flexDirection: "row", flex: 1, alignItems: "flex-start" },
+  walker: { alignItems: "center", gap: 4, width: 58 },
+  conn: { flex: 1, height: 2, borderRadius: 1, backgroundColor: C.rule, marginTop: 19, marginHorizontal: -8, overflow: "hidden" },
+  connFill: { position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: C.ink },
+  paid: { width: 40, height: 40, borderRadius: 20, backgroundColor: C.green, alignItems: "center", justifyContent: "center" },
+  paidText: { fontFamily: FONT.face, fontWeight: "700", fontSize: 13, color: C.onInk },
+  walkName: { fontFamily: FONT.face, fontSize: 12, fontWeight: "600", color: C.ink2 },
+  walkRole: { fontFamily: FONT.face, fontSize: 11, color: C.ink3, textAlign: "center" },
   caption: { fontFamily: FONT.face, fontSize: 15, lineHeight: 21, color: C.ink, marginTop: 14, minHeight: 44 },
-  captionN: { fontFamily: FONT.mono, fontSize: 12, color: C.ink3 },
-  perm: { borderTopWidth: 1.5, borderColor: C.ink, marginTop: 4 },
-  permRow: { flexDirection: "row", gap: 14, paddingVertical: 14, borderBottomWidth: 1, borderColor: C.rule, alignItems: "flex-start" },
-  permB: { fontFamily: FONT.face, fontSize: 16, fontWeight: "800", color: C.ink },
+  captionN: { fontFamily: FONT.face, fontWeight: "700", fontSize: 13, color: C.ink3 },
+  permRow: { flexDirection: "row", gap: 14, paddingVertical: 16, alignItems: "flex-start" },
+  permSep: { borderTopWidth: 1, borderColor: C.rule },
+  permB: { fontFamily: FONT.face, fontSize: 16, fontWeight: "700", color: C.ink },
   permWhy: { fontFamily: FONT.face, fontSize: 14, lineHeight: 20, color: C.ink2, marginTop: 2 },
-  permAside: { fontFamily: FONT.hand, fontSize: 16, fontWeight: "700", color: C.red, marginTop: 6, transform: [{ rotate: "-1.5deg" }] },
+  permAside: { fontFamily: FONT.face, fontSize: 13, fontWeight: "600", color: C.ink2, marginTop: 6 },
   after: { fontFamily: FONT.face, fontSize: 14, lineHeight: 20, color: C.ink2, marginTop: 14 },
-  term: { flexDirection: "row", gap: 8, paddingVertical: 6 },
-  termN: { fontFamily: FONT.mono, fontSize: 12, fontWeight: "700", color: C.receiptInk, paddingTop: 2, width: 22 },
-  termText: { flex: 1, fontFamily: FONT.face, fontSize: 14, lineHeight: 20, color: C.receiptInk2 },
-  pad: { height: 56, borderBottomWidth: 1.5, borderColor: C.receiptInk, justifyContent: "flex-end", marginTop: 10 },
-  x: { position: "absolute", left: 0, bottom: 4, fontFamily: FONT.face, fontWeight: "700", color: C.receiptInk, fontSize: 16 },
-  sig: { fontFamily: FONT.hand, fontSize: 24, color: C.signInk, marginLeft: 26, marginBottom: 4, transform: [{ rotate: "-3deg" }] },
-  cap: { fontFamily: FONT.mono, fontSize: 11, color: C.receiptInk2, marginTop: 4 },
-  signBtn: { alignSelf: "flex-start", minHeight: 48, justifyContent: "center", marginTop: 10, paddingHorizontal: 14, borderRadius: 6, borderWidth: 2, borderColor: C.receiptInk, backgroundColor: C.receipt },
-  signBtnOn: { backgroundColor: C.receiptInk },
-  signText: { fontFamily: FONT.face, fontSize: 15, fontWeight: "800", color: C.receiptInk },
+  term: { flexDirection: "row", gap: 12, paddingVertical: 8 },
+  termN: { width: 24, height: 24, borderRadius: 12, backgroundColor: C.amberSoft, alignItems: "center", justifyContent: "center", marginTop: -1 },
+  termNText: { fontFamily: FONT.face, fontSize: 12, fontWeight: "800", color: C.amberInk },
+  termText: { flex: 1, fontFamily: FONT.face, fontSize: 14, lineHeight: 20, color: C.ink2 },
+  pad: { height: 56, borderBottomWidth: 1.5, borderColor: C.ruleStrong, justifyContent: "flex-end", marginTop: 10 },
+  x: { position: "absolute", left: 0, bottom: 6, fontFamily: FONT.face, fontWeight: "700", color: C.ink3, fontSize: 16 },
+  sig: { fontFamily: FONT.face, fontSize: 20, fontWeight: "600", color: C.signInk, marginLeft: 24, marginBottom: 6 },
+  cap: { fontFamily: FONT.face, fontSize: 12, color: C.ink3, marginTop: 6 },
+  signBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    alignSelf: "stretch",
+    minHeight: 52,
+    justifyContent: "center",
+    marginTop: 12,
+    paddingHorizontal: 16,
+    borderRadius: R.box,
+    borderWidth: 1.5,
+    borderColor: C.outline,
+    backgroundColor: C.card,
+  },
+  signBtnOn: { backgroundColor: C.ink, borderColor: C.ink },
+  box: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: C.outline, alignItems: "center", justifyContent: "center" },
+  boxOn: { borderColor: C.onInk, backgroundColor: C.onInk },
+  boxTick: { width: 10, height: 6, borderLeftWidth: 2.2, borderBottomWidth: 2.2, borderColor: C.ink, transform: [{ translateY: -1 }, { rotate: "-45deg" }] },
+  signText: { fontFamily: FONT.face, fontSize: 16, fontWeight: "700", color: C.ink },
   radioLine: { fontFamily: FONT.face, fontSize: 14, color: C.ink2, marginBottom: 10 },
 });

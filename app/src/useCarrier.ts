@@ -30,6 +30,15 @@ export type Boot =
   | { state: "ready"; wallet: AppWallet; pocket: Pocket; dropped: number }
   | { state: "failed"; message: string };
 
+/** A handoff that did not finish. The slip never left this pocket. */
+export interface HandFailure {
+  id: number;
+  peer: PublicKey;
+  noteHash: string;
+  /** One sentence: why. */
+  reason: string;
+}
+
 export type Online = "unknown" | "online" | "offline";
 
 export interface Toast {
@@ -66,6 +75,8 @@ export function useCarrier(services: Services) {
   const [pouchBusy, setPouchBusy] = useState<string | null>(null);
   const [pouchError, setPouchError] = useState<string | null>(null);
   const [firstHandoff, setFirstHandoff] = useState(false);
+  /** A handoff that did not finish: the slip is still in this pocket. */
+  const [handFailed, setHandFailed] = useState<HandFailure | null>(null);
 
   const radioRef = useRef<Radio | null>(null);
   const pulling = useRef(new Set<string>());
@@ -305,8 +316,13 @@ export function useCarrier(services: Services) {
         say("The radio is off. Turn it on to hand this over.");
         return;
       }
+      const failed = (reason: string) => {
+        ids.current += 1;
+        setHandFailed({ id: ids.current, peer, noteHash, reason });
+        announce(`That did not go through. ${reason} The payment is still in your pocket.`);
+      };
       if (!peers.some((p) => p.equals(peer))) {
-        say(`${shorten(peer)} walked out of range. The payment is still in your pocket.`);
+        failed(`${shorten(peer)} walked out of range.`);
         return;
       }
       try {
@@ -314,7 +330,7 @@ export function useCarrier(services: Services) {
         await r.hand(peer, [noteHash]);
       } catch (e) {
         pocket.cancelHand(noteHash);
-        say(`Could not hand it over: ${(e as Error).message}. It is still in your pocket.`);
+        failed(`The radio said: ${(e as Error).message}.`);
         return;
       }
       say(`Handing it to ${shorten(peer)}. Keep the phones close.`);
@@ -326,7 +342,7 @@ export function useCarrier(services: Services) {
           handTimers.current.delete(noteHash);
           if (pocket.node.holds(noteHash)) {
             pocket.cancelHand(noteHash);
-            say(`${shorten(peer)}'s phone did not take it. It is still in your pocket.`);
+            failed(`${shorten(peer)}'s phone did not take it in time.`);
           }
         }, HAND_WAIT_MS),
       );
@@ -522,6 +538,13 @@ export function useCarrier(services: Services) {
     moment,
     dismissMoment: () => setMoment(null),
     firstHandoff,
+    handFailed,
+    clearHandFailed: () => setHandFailed(null),
+    /** Demo only: show the did-not-finish sheet. */
+    showHandFailed: (f: Omit<HandFailure, "id">) => {
+      ids.current += 1;
+      setHandFailed({ ...f, id: ids.current });
+    },
     say,
     amountText: (b: Bundle) => formatAmount(b).text,
     services,

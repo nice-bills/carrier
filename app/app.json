@@ -19,7 +19,8 @@
         "BLUETOOTH_SCAN",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "NEARBY_WIFI_DEVICES"
+        "NEARBY_WIFI_DEVICES",
+        "VIBRATE"
       ]
     },
     "plugins": ["expo-secure-store", "expo-nearby-connections"]

@@ -1,12 +1,13 @@
-import { useMemo, useRef, useState } from "react";
-import { Animated, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Animated, Easing, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { PublicKey } from "@solana/web3.js";
 import type { Bundle } from "@carrier/mesh";
 import { noteKey } from "../chain";
 import { shorten } from "../format";
-import { C, S } from "../theme";
+import { C, R, S, SHADOW } from "../theme";
 import { FONT } from "../ui/fonts";
-import { Button, Coach, Head, useReducedMotion } from "../ui/kit";
+import { Appear, Button, Card, Coach, Head, LiveDot, PillButton, Plus, ScreenHead, buzz, spring, useReducedMotion } from "../ui/kit";
+import { useDock } from "../ui/chrome";
 import type { Carrier } from "../useCarrier";
 import { FeedRow, PeopleEmpty, PersonRow, type PersonInfo } from "./People";
 import { SlipView, slipFacts, slipLabel } from "./Slip";
@@ -44,6 +45,7 @@ export function CarryScreen({
   /** Demo only: draw this person as the drop target, slip lifted. */
   forceTarget?: string | null;
 }) {
+  const onDock = useDock();
   const reduced = useReducedMotion();
   const pocket = c.pocket!;
   const me = pocket.me;
@@ -130,15 +132,67 @@ export function CarryScreen({
   const rotate = pan.x.interpolate({ inputRange: [-300, 300], outputRange: ["-12deg", "6deg"], extrapolate: "clamp" });
   const showLifted = lifted || !!forceTarget;
   const liftStyle = showLifted
-    ? {
-        transform: [
-          { translateX: forceTarget ? 30 : pan.x },
-          { translateY: forceTarget ? 150 : pan.y },
-          { scale: 0.92 },
-          ...(reduced ? [] : [{ rotate: forceTarget ? "-3deg" : rotate }]),
-        ],
-      }
+    ? [
+        s.liftShadow,
+        {
+          transform: [
+            { translateX: forceTarget ? 30 : pan.x },
+            { translateY: forceTarget ? 150 : pan.y },
+            ...(reduced ? [] : [{ scale: 1.03 }, { rotate: forceTarget ? "-3deg" : rotate }]),
+          ],
+        },
+      ]
     : undefined;
+
+  // --- motion: a slip leaving for someone, a slip arriving ---------------------------
+  const rootRef = useRef<View>(null);
+  const pocketRef = useRef<View>(null);
+  const currentKey = current ? noteKey(current) : null;
+  const keySig = slips.map(noteKey).join("|");
+  const prevKeys = useRef<Set<string> | null>(null);
+  const shown = useRef<Bundle | null>(null);
+  const [fly, setFly] = useState<Flight | null>(null);
+  const [freshKey, setFreshKey] = useState<string | null>(null);
+  const drop = useRef(new Animated.Value(1)).current;
+
+  // Declared before the effect that remembers what is showing, so it still sees the old slip.
+  useEffect(() => {
+    const now = new Set(keySig ? keySig.split("|") : []);
+    const prev = prevKeys.current;
+    prevKeys.current = now;
+    if (!prev) return; // first render: nothing arrived or left
+    const gone = shown.current;
+    if (gone && !now.has(noteKey(gone)) && !reduced) {
+      const e = pocket.feed[0];
+      // Only a handoff that went through flies; a failed one leaves the slip where it was.
+      if (e && (e.kind === "handed" || e.kind === "delivered") && Date.now() - e.at < 3000) {
+        const to = people.find((p) => shorten(p.key) === e.who) ?? people.find((p) => p.key.toBase58() === selected) ?? null;
+        const row = to ? rows.current.get(to.key.toBase58()) : null;
+        rootRef.current?.measure((_x, _y, _w, _h, rx, ry) => {
+          pocketRef.current?.measure((_a, _b, pw, _ph, px, py) => {
+            const from = { x: px - rx + 12, y: py - ry + 12, w: pw - 24 };
+            if (row) row.measure((_c, _d, w, h, qx, qy) => setFly({ bundle: gone, from, to: { x: qx - rx + w / 2, y: qy - ry + h / 2 } }));
+            else setFly({ bundle: gone, from, to: null });
+          });
+        });
+      }
+    }
+    if (currentKey && !prev.has(currentKey)) {
+      setFreshKey(currentKey);
+      buzz("land");
+      drop.setValue(0);
+      spring(drop, 1, reduced).start();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keySig]);
+  useEffect(() => {
+    shown.current = current;
+  }, [current]);
+  useEffect(() => {
+    if (!freshKey) return;
+    const t = setTimeout(() => setFreshKey(null), 1600);
+    return () => clearTimeout(t);
+  }, [freshKey]);
 
   // --- dock -------------------------------------------------------------------------
   const radio = c.radio;
@@ -185,50 +239,85 @@ export function CarryScreen({
             ? { n: 1, text: "Anyone marked as holding a payment can hand it to you. Tap them and take it. You carry it until you meet someone going its way." }
             : null;
 
-  const sub = slips.length ? (slips.length === 1 ? "Carrying 1 payment" : `Carrying ${slips.length} payments`) : "Nothing in your pocket";
+  const sub = slips.length
+    ? slips.length === 1
+      ? "You're carrying 1 payment"
+      : `You're carrying ${slips.length} payments`
+    : "Nothing to carry right now";
+  const settlingN = Object.values(c.settling).filter(Boolean).length;
 
   return (
-    <View style={{ flex: 1 }}>
-      <View style={s.bar}>
-        <Text style={s.h1} accessibilityRole="header">
-          Carry
-        </Text>
-        <Text style={s.sub}>{sub}</Text>
-      </View>
+    <View style={{ flex: 1 }} ref={rootRef} collapsable={false}>
+      <ScreenHead
+        title="Carry"
+        sub={sub}
+        aside={<PillButton label="Pay" hint="Sign a new payment from your pouch" icon={<Plus />} onPress={() => onPay()} />}
+      />
       <ScrollView scrollEnabled={scrollOn} contentContainerStyle={s.body}>
         <View style={s.radio} accessible accessibilityLiveRegion="polite" accessibilityLabel={radioLine(radio, people.length)}>
-          <View style={[s.led, radio.state === "on" ? s.ledOn : s.ledOff]} />
-          <Text style={[s.radioText, radio.state !== "on" && { color: C.ink }]}>{radioLine(radio, people.length)}</Text>
+          <LiveDot on={radio.state === "on"} />
+          <Text style={s.radioText}>{radioLine(radio, people.length)}</Text>
         </View>
 
-        {coach ? <Coach n={coach.n} text={coach.text} onDone={() => pocket.stopTips().catch(() => {})} /> : null}
+        {settlingN ? (
+          <Appear from={-8}>
+            <View style={s.banner} accessibilityLiveRegion="polite">
+              <ActivityIndicator size="small" color={C.greenInk} />
+              <Text style={s.bannerText}>
+                Signal found. Settling {settlingN} {settlingN === 1 ? "payment" : "payments"}…
+              </Text>
+            </View>
+          </Appear>
+        ) : null}
 
-        <View style={[s.pocket, showLifted && { zIndex: 5 }]}>
-          <View style={s.stitchBox} pointerEvents="none" />
-          <View style={s.stitchTop} pointerEvents="none" />
+        {coach ? (
+          <View style={{ marginTop: 14, marginBottom: -14 }}>
+            <Coach
+              n={coach.n}
+              text={coach.text}
+              onDone={() =>
+                pocket.stopTips().catch(() => c.say("Couldn't save that setting. The tips may come back next time you open Carrier."))
+              }
+            />
+          </View>
+        ) : null}
+
+        <View ref={pocketRef} collapsable={false} style={[s.pocket, showLifted && { zIndex: 5 }]}>
           {current ? (
             <>
               <Animated.View
-                {...(passable ? responder.panHandlers : {})}
-                style={[{ zIndex: 5 }, liftStyle]}
-                accessible
-                accessibilityLabel={slipLabel(current, me, slips.length > 1 ? `${cursor + 1} of ${slips.length}.` : undefined)}
-                accessibilityHint={passable && people.length ? "Use the actions menu to pass it to someone near you" : undefined}
-                accessibilityActions={
-                  passable ? people.map((p) => ({ name: `pass:${p.key.toBase58()}`, label: `Pass to ${shorten(p.key)}` })) : []
-                }
-                onAccessibilityAction={(e) => {
-                  const name = e.nativeEvent.actionName;
-                  const p = people.find((x) => `pass:${x.key.toBase58()}` === name);
-                  if (p && current) onPass(current, p.key);
+                style={{
+                  zIndex: 5,
+                  transform: [
+                    { translateY: drop.interpolate({ inputRange: [0, 1], outputRange: [-24, 0] }) },
+                    { scale: drop.interpolate({ inputRange: [0, 1], outputRange: [1.03, 1] }) },
+                  ],
                 }}
               >
-                <SlipView
-                  bundle={current}
-                  me={me}
-                  lifted={showLifted}
-                  counter={slips.length > 1 ? `${cursor + 1} of ${slips.length}` : undefined}
-                />
+                <Animated.View
+                  {...(passable ? responder.panHandlers : {})}
+                  style={liftStyle}
+                  accessible
+                  accessibilityLabel={slipLabel(current, me, slips.length > 1 ? `${cursor + 1} of ${slips.length}.` : undefined)}
+                  accessibilityHint={passable && people.length ? "Use the actions menu to pass it to someone near you" : undefined}
+                  accessibilityActions={
+                    passable ? people.map((p) => ({ name: `pass:${p.key.toBase58()}`, label: `Pass to ${shorten(p.key)}` })) : []
+                  }
+                  onAccessibilityAction={(e) => {
+                    const name = e.nativeEvent.actionName;
+                    const p = people.find((x) => `pass:${x.key.toBase58()}` === name);
+                    if (p && current) onPass(current, p.key);
+                  }}
+                >
+                  <SlipView
+                    key={currentKey!}
+                    bundle={current}
+                    me={me}
+                    lifted={showLifted}
+                    freshLast={freshKey === currentKey}
+                    counter={slips.length > 1 ? `${cursor + 1} of ${slips.length}` : undefined}
+                  />
+                </Animated.View>
               </Animated.View>
               <View style={s.slipControls}>
                 {slips.length > 1 ? (
@@ -237,44 +326,55 @@ export function CarryScreen({
                     accessibilityRole="button"
                     accessibilityLabel="Show next payment"
                     accessibilityHint={`Payment ${cursor + 1} of ${slips.length} is showing`}
-                    style={s.chalkBtn}
+                    style={({ pressed }) => [s.pocketBtn, s.nextBtn, pressed && { opacity: 0.85 }]}
                   >
-                    <Text style={s.chalkBtnText}>Next slip ›</Text>
+                    <Text style={s.nextText}>Next slip</Text>
                   </Pressable>
                 ) : null}
                 <SettleControl c={c} bundle={current} />
               </View>
             </>
           ) : (
-            <View style={s.empty} accessible accessibilityLabel="Empty pocket. A payment you take lands here as a slip, stamped by everyone who carried it before you.">
-              <Text style={s.emptyHand}>empty pocket.</Text>
-              <Text style={s.emptySmall}>
-                A payment you take lands here as a slip, stamped by everyone who carried it before you.
-              </Text>
+            <View
+              style={s.empty}
+              accessible
+              accessibilityLabel="Your pocket is empty. Stay near people who are paying and you'll carry their payments too. A payment you take lands here as a slip, stamped by everyone who carried it before you."
+            >
+              <View style={s.emptyLine} pointerEvents="none" />
+              <View style={s.emptyIcon}>
+                <View style={s.emptyGlyph}>
+                  <View style={s.emptyGlyphBar} />
+                </View>
+              </View>
+              <Text style={s.emptyTitle}>Your pocket is empty</Text>
+              <Text style={s.emptySmall}>Stay near people who are paying and you'll carry their payments too.</Text>
             </View>
           )}
         </View>
 
         <Head title="Near you" aside={people.length ? String(people.length) : undefined} />
         {people.length ? (
-          <View style={s.people} accessibilityLabel="People near you">
-            {people.map((p) => {
-              const k = p.key.toBase58();
-              return (
-                <PersonRow
-                  key={k}
-                  ref={(v) => {
-                    rows.current.set(k, v);
-                  }}
-                  person={p}
-                  selected={selected === k}
-                  target={over === k || forceTarget === k}
-                  hint={passable ? "Selects them. Then use the button at the bottom to hand it over." : "Selects them. Then use the button at the bottom."}
-                  onPress={() => setSelected(selected === k ? null : k)}
-                />
-              );
-            })}
-          </View>
+          <Card pad={false} style={s.list}>
+            <View accessibilityLabel="People near you">
+              {people.map((p, i) => {
+                const k = p.key.toBase58();
+                return (
+                  <PersonRow
+                    key={k}
+                    ref={(v) => {
+                      rows.current.set(k, v);
+                    }}
+                    first={i === 0}
+                    person={p}
+                    selected={selected === k}
+                    target={over === k || forceTarget === k}
+                    hint={passable ? "Selects them. Then use the button at the bottom to hand it over." : "Selects them. Then use the button at the bottom."}
+                    onPress={() => setSelected(selected === k ? null : k)}
+                  />
+                );
+              })}
+            </View>
+          </Card>
         ) : (
           <PeopleEmpty
             text={
@@ -286,20 +386,76 @@ export function CarryScreen({
         )}
 
         <Head title="Just now" aside="See all" onAside={onSeeAll} asideHint="Opens the Around tab" />
-        {pocket.feed.slice(0, 3).map((e) => (
-          <FeedRow key={e.id} e={e} />
-        ))}
-        {!pocket.feed.length ? <Text style={s.quiet}>Nothing has happened on this phone yet.</Text> : null}
+        <Card pad={false} style={s.list}>
+          {pocket.feed.slice(0, 3).map((e, i) => (
+            <FeedRow key={e.id} e={e} first={i === 0} />
+          ))}
+          {!pocket.feed.length ? <Text style={s.quiet}>Nothing has happened on this phone yet.</Text> : null}
+        </Card>
       </ScrollView>
-      <View style={s.dock}>
+      <View style={s.dock} onLayout={onDock}>
         <Button label={primary.spoken ?? primary.label} hint={primary.hint} onPress={primary.onPress} disabled={primary.disabled}>
           {primary.label}
         </Button>
-        {primary.label.startsWith("Pay ") ? null : (
-          <Button label="Pay someone" hint="Sign a new payment from your pouch" variant="quiet" onPress={() => onPay()} />
-        )}
       </View>
+      {fly ? <FlyingSlip flight={fly} me={me} onDone={() => setFly(null)} /> : null}
     </View>
+  );
+}
+
+interface Flight {
+  bundle: Bundle;
+  /** Where the slip sat, relative to the screen. */
+  from: { x: number; y: number; w: number };
+  /** The centre of the person it went to, or null to fly up and away. */
+  to: { x: number; y: number } | null;
+}
+
+/**
+ * A copy of a slip that was just handed on, arcing from the pocket to the
+ * person who took it: it shrinks, tips a little and fades as it lands.
+ * Decorative; the feed and the announcement say what happened.
+ */
+function FlyingSlip({ flight, me, onDone }: { flight: Flight; me: PublicKey; onDone: () => void }) {
+  const t = useRef(new Animated.Value(0)).current;
+  const [h, setH] = useState<number | null>(null);
+  useEffect(() => {
+    if (h == null) return;
+    const a = Animated.timing(t, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.cubic), useNativeDriver: true });
+    a.start(() => onDone());
+    return () => a.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [h]);
+  const { from, to } = flight;
+  const cx = from.x + from.w / 2;
+  const cy = from.y + (h ?? 0) / 2;
+  const dx = to ? to.x - cx : 0;
+  const dy = to ? to.y - cy : -(from.y + (h ?? 0)) - 40;
+  const steps = [0, 0.25, 0.5, 0.75, 1];
+  return (
+    <Animated.View
+      pointerEvents="none"
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden
+      onLayout={(e) => h == null && setH(e.nativeEvent.layout.height)}
+      style={[
+        s.flyer,
+        {
+          left: from.x,
+          top: from.y,
+          width: from.w,
+          opacity: h == null ? 0 : t.interpolate({ inputRange: [0, 0.7, 1], outputRange: [1, 1, 0] }),
+          transform: [
+            { translateX: t.interpolate({ inputRange: [0, 1], outputRange: [0, dx] }) },
+            { translateY: t.interpolate({ inputRange: steps, outputRange: steps.map((p) => dy * p - 70 * Math.sin(Math.PI * p)) }) },
+            { scale: t.interpolate({ inputRange: [0, 0.15, 1], outputRange: [1, 1.04, 0.25] }) },
+            { rotate: t.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "12deg"] }) },
+          ],
+        },
+      ]}
+    >
+      <SlipView bundle={flight.bundle} me={me} />
+    </Animated.View>
   );
 }
 
@@ -311,6 +467,7 @@ function SettleControl({ c, bundle }: { c: Carrier; bundle: Bundle }) {
   const forMe = bundle.note.to.equals(c.pocket!.me);
   // Settling is offered for payments to you, and for ones you carry.
   if (!forMe && bundle.hops.length === 0) return null;
+  if (c.online !== "online" && !forMe && !error) return null;
   return (
     <View style={{ flex: 1, gap: 6 }}>
       {c.online === "online" ? (
@@ -320,7 +477,7 @@ function SettleControl({ c, bundle }: { c: Carrier; bundle: Bundle }) {
           accessibilityLabel={forMe ? "Settle now" : "Settle it yourself now"}
           accessibilityHint="Sends it to Solana. This phone pays a small network fee."
           accessibilityState={{ busy }}
-          style={[s.chalkBtn, s.settleBtn]}
+          style={({ pressed }) => [s.pocketBtn, s.settleBtn, pressed && { opacity: 0.85 }]}
         >
           <Text style={s.settleText}>{busy ? "Settling…" : forMe ? "Settle now" : "Settle it now"}</Text>
         </Pressable>
@@ -337,60 +494,52 @@ function SettleControl({ c, bundle }: { c: Carrier; bundle: Bundle }) {
 }
 
 const s = StyleSheet.create({
-  bar: { paddingHorizontal: S.gutter, paddingTop: 12, paddingBottom: 12 },
-  h1: { fontFamily: FONT.face, fontSize: 30, fontWeight: "800", letterSpacing: -1.2, color: C.ink },
-  sub: { fontFamily: FONT.face, fontSize: 14, color: C.ink2, marginTop: 5 },
   body: { paddingHorizontal: S.gutter, paddingBottom: 24 },
-  radio: { flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 14, minHeight: 24 },
-  led: { width: 10, height: 10, borderRadius: 5 },
-  ledOn: { backgroundColor: C.green },
-  ledOff: { borderWidth: 1.5, borderColor: C.ink3 },
-  radioText: { fontFamily: FONT.face, fontSize: 14, color: C.ink2, flexShrink: 1 },
-  pocket: {
-    backgroundColor: C.denim,
-    borderTopLeftRadius: 6,
-    borderTopRightRadius: 6,
-    borderBottomLeftRadius: 26,
-    borderBottomRightRadius: 26,
-    paddingTop: 18,
-    paddingHorizontal: 14,
-    paddingBottom: 20,
-  },
-  stitchBox: {
-    position: "absolute",
-    top: 7,
-    left: 7,
-    right: 7,
-    bottom: 7,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    borderColor: C.thread,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  stitchTop: { position: "absolute", left: 7, right: 7, top: 12, borderTopWidth: 1.5, borderStyle: "dashed", borderColor: C.thread },
-  slipControls: { flexDirection: "row", gap: 10, marginTop: 12, alignItems: "flex-start" },
-  chalkBtn: {
-    minHeight: 48,
-    paddingHorizontal: 14,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: C.chalk,
-    justifyContent: "center",
+  radio: {
+    flexDirection: "row",
     alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 8,
+    marginTop: 4,
+    minHeight: 36,
+    paddingVertical: 8,
+    paddingLeft: 12,
+    paddingRight: 14,
+    borderRadius: R.pill,
+    backgroundColor: C.card,
+    ...SHADOW,
   },
-  chalkBtnText: { fontFamily: FONT.face, fontSize: 15, fontWeight: "700", color: C.chalk },
-  settleBtn: { backgroundColor: C.chalk, borderColor: C.chalk },
-  settleText: { fontFamily: FONT.face, fontSize: 15, fontWeight: "800", color: C.denimDark },
-  chalkNote: { fontFamily: FONT.face, fontSize: 14, color: C.chalk2, paddingTop: 4 },
-  error: { fontFamily: FONT.face, fontSize: 14, lineHeight: 20, color: C.receiptInk, backgroundColor: C.receipt, padding: 10, borderLeftWidth: 4, borderColor: C.red },
-  empty: { paddingTop: 22, paddingBottom: 10, paddingHorizontal: 8, alignItems: "center" },
-  emptyHand: { fontFamily: FONT.hand, fontWeight: "700", fontSize: 22, color: C.chalk, transform: [{ rotate: "-2deg" }] },
-  emptySmall: { fontFamily: FONT.face, fontSize: 14, lineHeight: 20, color: C.chalk2, marginTop: 10, textAlign: "center" },
-  people: { borderTopWidth: 1.5, borderColor: C.ink },
-  quiet: { fontFamily: FONT.face, fontSize: 14, color: C.ink2, paddingVertical: 8 },
-  dock: { paddingHorizontal: S.gutter, paddingTop: 10, paddingBottom: 14, gap: 8, borderTopWidth: 1, borderColor: C.rule, backgroundColor: C.paper },
+  radioText: { fontFamily: FONT.face, fontSize: 14, fontWeight: "500", color: C.ink, flexShrink: 1 },
+  banner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: R.box,
+    backgroundColor: C.greenSoft,
+  },
+  bannerText: { fontFamily: FONT.face, fontSize: 14, fontWeight: "600", color: C.greenInk, flexShrink: 1 },
+  pocket: { backgroundColor: C.denim, borderRadius: 28, padding: 12, marginTop: 18 },
+  liftShadow: { shadowColor: C.ink, shadowOpacity: 0.22, shadowRadius: 22, shadowOffset: { width: 0, height: 14 }, elevation: 10, borderRadius: 20 },
+  slipControls: { flexDirection: "row", gap: 8, marginTop: 10, alignItems: "flex-start" },
+  pocketBtn: { minHeight: 52, paddingHorizontal: 14, borderRadius: 14, justifyContent: "center", alignItems: "center" },
+  nextBtn: { flex: 1, backgroundColor: C.denimDeep },
+  nextText: { fontFamily: FONT.face, fontSize: 16, fontWeight: "600", color: C.chalk },
+  settleBtn: { backgroundColor: C.chalk },
+  settleText: { fontFamily: FONT.face, fontSize: 16, fontWeight: "700", color: C.denimDark },
+  chalkNote: { fontFamily: FONT.face, fontSize: 14, lineHeight: 20, color: C.chalk2, paddingTop: 4, paddingHorizontal: 4 },
+  error: { fontFamily: FONT.face, fontSize: 14, lineHeight: 20, color: C.redInk, backgroundColor: C.redSoft, borderRadius: 12, padding: 12, overflow: "hidden" },
+  empty: { minHeight: 210, paddingHorizontal: 28, paddingVertical: 28, alignItems: "center", justifyContent: "center", gap: 10 },
+  emptyLine: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, borderWidth: 2, borderStyle: "dashed", borderColor: C.chalk2, borderRadius: 20, opacity: 0.45 },
+  emptyIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.denimDeep, alignItems: "center", justifyContent: "center" },
+  emptyGlyph: { width: 22, height: 16, borderRadius: 4, borderWidth: 2, borderColor: C.chalk, justifyContent: "flex-start", paddingTop: 3 },
+  emptyGlyphBar: { height: 2, backgroundColor: C.chalk },
+  emptyTitle: { fontFamily: FONT.face, fontSize: 17, fontWeight: "700", color: C.chalk, textAlign: "center" },
+  emptySmall: { fontFamily: FONT.face, fontSize: 14, lineHeight: 20, color: C.chalk2, textAlign: "center" },
+  list: { paddingVertical: 3 },
+  quiet: { fontFamily: FONT.face, fontSize: 14, color: C.ink2, paddingVertical: 14, paddingHorizontal: 16 },
+  dock: { paddingHorizontal: S.gutter, paddingTop: 10, paddingBottom: 14, backgroundColor: C.paper },
+  flyer: { position: "absolute", zIndex: 50 },
 });
-
