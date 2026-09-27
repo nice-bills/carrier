@@ -1,796 +1,1718 @@
-<title>Pocket Epidemic</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Carrier</title>
+<meta name="description" content="Carrier, the pocket client: payments handed phone to phone with no signal, stamped by everyone who carries them.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;500;600;700&family=Kalam:wght@400;700&display=swap">
 
 <style>
   /*
-    Liquid Glass, built the way Apple describes it: three layers, not one blur.
+    Carrier lives in your pocket, so everything here is a thing you could
+    find in one.
 
-      illumination  a translucent fill that lets the backdrop through
-      highlight     a specular top edge and a brighter fresnel rim
-      shadow        real separation between the glass and what is under it
+      denim     the pocket itself, and the page the phone lies on
+      slip      a payment: amber paper, perforated, one per note
+      stamp     a handoff; red ink, one per person who carried it. The row of
+                stamps on a slip IS the co-signed hop lineage
+      SETTLED   green ink, slammed on when the chain reaches signal
+      tag       your key, on a kraft luggage tag
+      receipt   anything that is a record: the terms you sign, what you earned
+      chalk     tailor's chalk on the denim, for notes about the prototype
 
-    Glass needs something real behind it. Not a decorative gradient field, which
-    is only ever a crutch and reads as generated: the app's own content scrolls
-    under the chrome and that is what the blur bends.
+    Objects keep their own colours in both themes, the way a slip of paper
+    does not change colour when the lights go down. Only the phone's paper
+    and ink swap.
 
-    So the split is strict. Chrome that floats over content is glass. Anything
-    holding text is solid, because text on translucency is the usual failure of
-    this style.
+    No blur, no glass, no drop shadows. Objects sit flat and are told apart
+    by material and edge, which is how paper on a table actually looks.
   */
   :root {
-    --ink:      #12131A;
-    --on-glass: #FFFFFF;
-    --muted:    rgba(255, 255, 255, 0.66);
-    --faint:    rgba(255, 255, 255, 0.4);
+    /* the phone's paper and ink (swap with theme) */
+    --paper:        oklch(0.968 0.005 95);
+    --paper-2:      oklch(0.93 0.008 95);
+    --card:         oklch(0.988 0.003 95);
+    --rule:         oklch(0.87 0.01 95);
+    --rule-strong:  oklch(0.72 0.012 95);
+    --ink:          oklch(0.22 0.025 262);
+    --ink-2:        oklch(0.42 0.02 262);
+    --ink-3:        oklch(0.5 0.015 262);
+    --on-ink:       oklch(0.97 0.005 95);
+    --red:          oklch(0.52 0.19 27);
+    --green:        oklch(0.48 0.12 160);
 
-    --mint:   #3DDC97;
-    --coral:  #FF6B5A;
-    --gold:   #FFC845;
-    --violet: #8A7BFF;
-    --sky:    #4FC3F7;
+    /* objects (fixed) */
+    --slip:         oklch(0.81 0.145 72);
+    --slip-deep:    oklch(0.7 0.15 62);
+    --slip-ink:     oklch(0.24 0.05 55);
+    --slip-ink-2:   oklch(0.36 0.07 55);
+    --stamp-ink:    oklch(0.5 0.19 27);
+    --paid-ink:     oklch(0.46 0.12 160);
+    --denim:        oklch(0.4 0.078 255);
+    --denim-deep:   oklch(0.31 0.065 258);
+    --denim-dark:   oklch(0.24 0.05 260);
+    --thread:       oklch(0.8 0.13 76);
+    --chalk:        oklch(0.95 0.012 250);
+    --chalk-2:      oklch(0.84 0.03 250);
+    --kraft:        oklch(0.76 0.075 72);
+    --kraft-ink:    oklch(0.27 0.045 60);
+    --receipt:      oklch(0.985 0.002 95);
+    --receipt-ink:  oklch(0.24 0.02 262);
+    --receipt-ink-2: oklch(0.45 0.015 262);
+    --tape:         oklch(0.9 0.035 90 / 0.72);
+    --bezel:        oklch(0.17 0.01 262);
 
-    --ease:   cubic-bezier(0.32, 0.72, 0, 1);
-    --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+    --r:    6px;
+    --r-sm: 3px;
 
-    --face: "Manrope", -apple-system, system-ui, sans-serif;
+    --out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+    --out-expo:  cubic-bezier(0.16, 1, 0.3, 1);
+
+    --face: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --hand: "Kalam", "Segoe Print", "Bradley Hand", cursive;
+
+    --z-screen: 1;
+    --z-tabs:   2;
+    --z-intro:  3;
+    --z-toast:  4;
+    --z-settle: 5;
+    --z-scrim:  10;
+    --z-sheet:  11;
+    --z-system: 12;
+
+    /* textures, inline so there is nothing to load */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --ink-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='i'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.55' numOctaves='3' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -3.4 2.55'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23i)'/%3E%3C/svg%3E");
+    --twill: repeating-linear-gradient(125deg, oklch(1 0 0 / 0.045) 0 1px, transparent 1px 3.5px),
+             repeating-linear-gradient(35deg, oklch(0 0 0 / 0.06) 0 1px, transparent 1px 5px);
+
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:       oklch(0.2 0.012 262);
+      --paper-2:     oklch(0.165 0.01 262);
+      --card:        oklch(0.245 0.014 262);
+      --rule:        oklch(0.32 0.014 262);
+      --rule-strong: oklch(0.47 0.015 262);
+      --ink:         oklch(0.95 0.006 95);
+      --ink-2:       oklch(0.79 0.01 95);
+      --ink-3:       oklch(0.69 0.01 95);
+      --on-ink:      oklch(0.2 0.012 262);
+      --red:         oklch(0.7 0.16 27);
+      --green:       oklch(0.76 0.12 160);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:       oklch(0.2 0.012 262);
+    --paper-2:     oklch(0.165 0.01 262);
+    --card:        oklch(0.245 0.014 262);
+    --rule:        oklch(0.32 0.014 262);
+    --rule-strong: oklch(0.47 0.015 262);
+    --ink:         oklch(0.95 0.006 95);
+    --ink-2:       oklch(0.79 0.01 95);
+    --ink-3:       oklch(0.69 0.01 95);
+    --on-ink:      oklch(0.2 0.012 262);
+    --red:         oklch(0.7 0.16 27);
+    --green:       oklch(0.76 0.12 160);
     color-scheme: dark;
   }
 
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-
+  *, *::before, *::after { box-sizing: border-box; }
+  * { -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
   body {
     margin: 0;
-    min-height: 100vh;
-    background: #08080C;
     font-family: var(--face);
-    color: var(--on-glass);
-    display: grid;
-    place-items: center;
-    padding: 12px;
-  }
-
-  .device {
-    width: min(412px, 100%);
-    height: min(880px, calc(100vh - 24px));
-    border-radius: 40px;
-    overflow: hidden;
-    position: relative;
-    isolation: isolate;
-    background: #0E0F14;
-  }
-
-  /* ── the material ───────────────────────────────────────────────────── */
-  /* Solid surfaces: everything that holds content. Text on translucency is
-     the usual failure of this style. */
-  .solid {
-    position: relative;
-    background: #1A1C24;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-  }
-
-  /* Glass: only chrome that floats over scrolling content, so the blur has
-     something real to refract. */
-  .glass {
-    position: relative;
-    background: rgba(26, 28, 36, 0.72);
-    backdrop-filter: blur(30px) saturate(170%);
-    -webkit-backdrop-filter: blur(30px) saturate(170%);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.14),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.08),
-      0 12px 32px rgba(0, 0, 0, 0.3);
-  }
-  /* the specular sweep: a directional highlight, not an all-over sheen */
-  .glass::after {
-    content: "";
-    position: absolute; inset: 0;
-    border-radius: inherit;
-    /* a thin specular edge, not an all-over sheen */
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
-    pointer-events: none;
-  }
-
-  /* ── screens ────────────────────────────────────────────────────────── */
-  .screen {
-    position: absolute; top: 0; left: 0; right: 0; bottom: 74px; z-index: 1;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(8px);
-    transition: opacity 320ms var(--ease), transform 320ms var(--ease);
-  }
-  .screen.on { opacity: 1; pointer-events: auto; transform: none; }
-
-  .bar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 22px 20px 12px;
-  }
-  .title { font-size: 25px; font-weight: 800; letter-spacing: -0.03em; }
-  .sub { font-size: 13px; color: var(--muted); font-weight: 500; }
-
-  .body { overflow-y: auto; scrollbar-width: none; padding: 0 16px 14px; }
-  .body::-webkit-scrollbar { display: none; }
-
-  .chip {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 7px 13px; border-radius: 999px;
-    font-size: 12px; font-weight: 700; letter-spacing: 0.01em;
-  }
-  .chip .led { width: 6px; height: 6px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 8px var(--mint); }
-
-  /* ── the held value ─────────────────────────────────────────────────── */
-  .purse {
-    border-radius: 26px; padding: 20px; margin-bottom: 12px;
-    background: #5B4BE8;
-    border-color: rgba(255,255,255,0.14);
-  }
-  .purse .lab, .purse .hint { color: rgba(255,255,255,0.68); }
-  .purse .step { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.2); color: rgba(255,255,255,0.86); }
-  .purse .step.you { background: #fff; color: #2A1F7A; }
-  .purse .step.end { background: var(--gold); color: #3A2A00; }
-  .purse .arrow { color: rgba(255,255,255,0.45); }
-  .purse .lab { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
-  .purse .fig {
-    font-size: 52px; font-weight: 800; letter-spacing: -0.045em;
-    line-height: 1.04; margin-top: 6px;
-    font-variant-numeric: tabular-nums;
-  }
-  .purse .fig small { font-size: 0.42em; font-weight: 700; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
-
-  .path { display: flex; align-items: center; gap: 5px; margin-top: 15px; overflow-x: auto; scrollbar-width: none; }
-  .path::-webkit-scrollbar { display: none; }
-  .path > * { flex: none; }
-  .step {
-    font-size: 11px; font-weight: 700;
-    padding: 5px 11px; border-radius: 999px;
-    background: rgba(255,255,255,0.13);
-    border: 1px solid rgba(255,255,255,0.14);
-    color: var(--muted);
-  }
-  .step.you { background: rgba(255,255,255,0.95); color: var(--ink); border-color: transparent; }
-  .step.end { background: var(--coral); color: #fff; border-color: transparent; }
-  .arrow { color: var(--faint); font-size: 12px; }
-
-  /* ── dragging the money onto someone ────────────────────────────────── */
-  .purse { touch-action: none; cursor: grab; }
-  .purse.lifted {
-    cursor: grabbing;
-    z-index: 5;
-    box-shadow: 0 24px 50px rgba(0,0,0,0.55);
-    transition: none;
-  }
-  .purse .hint {
-    font-size: 11.5px; font-weight: 600; color: var(--faint);
-    margin-top: 12px; letter-spacing: 0.02em;
-  }
-  .soul.target .head { box-shadow: 0 0 0 3px var(--mint), 0 6px 18px rgba(0,0,0,0.4); }
-  .soul.target { background: rgba(61,220,151,0.18); }
-
-  .hollow {
-    border-radius: 26px; padding: 26px 20px; margin-bottom: 12px; text-align: left;
-    background: #17304A;
-  }
-  .hollow h3 { margin: 0 0 6px; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
-  .hollow p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
-
-  /* ── people ─────────────────────────────────────────────────────────── */
-  .section { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; margin: 16px 4px 9px; }
-
-  .queue { display: flex; gap: 9px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
-  .queue::-webkit-scrollbar { display: none; }
-  .soul {
-    flex: none; width: 84px;
-    border: 0; padding: 12px 8px 11px; cursor: pointer;
-    border-radius: 20px;
-    font-family: inherit; color: inherit;
-    display: grid; justify-items: center; gap: 7px;
-    transition: transform 200ms var(--spring);
-  }
-  .soul:active { transform: scale(0.94); }
-  .soul[aria-pressed="true"] {
-    background: rgba(255,255,255,0.28);
-    box-shadow: inset 0 0 0 1.5px rgba(255,255,255,0.7);
-  }
-  .soul .head {
-    width: 44px; height: 44px; border-radius: 50%;
-    display: grid; place-items: center;
-    font-weight: 800; font-size: 17px; color: #fff;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 12px rgba(0,0,0,0.3);
-  }
-  .soul .nm { font-size: 12px; font-weight: 700; max-width: 68px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .soul .st { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
-  .soul.loaded .st { color: var(--gold); }
-
-  @keyframes halo {
-    0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 12px rgba(0,0,0,0.3), 0 0 0 0 rgba(255,200,69,0.5); }
-    50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 12px rgba(0,0,0,0.3), 0 0 0 7px rgba(255,200,69,0); }
-  }
-  .soul.loaded .head { animation: halo 2.4s ease-out infinite; }
-
-  /* ── activity ───────────────────────────────────────────────────────── */
-  .line {
-    display: flex; align-items: center; gap: 11px;
-    border-radius: 18px; padding: 12px 14px; margin-bottom: 8px;
-  }
-  .line .who { width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 800; font-size: 12px; color: #fff; }
-  .line p { margin: 0; font-size: 13.5px; line-height: 1.35; color: var(--muted); font-weight: 500; }
-  .line p b { color: var(--on-glass); font-weight: 700; }
-  .line p i { font-style: normal; font-weight: 700; color: var(--gold); }
-  .line time { margin-left: auto; font-size: 11px; color: var(--faint); white-space: nowrap; font-weight: 600; }
-  @keyframes arrive { from { opacity: 0; transform: translateY(-9px); } to { opacity: 1; transform: none; } }
-  .line.new { animation: arrive 420ms var(--ease) both; }
-
-  /* ── actions ────────────────────────────────────────────────────────── */
-  .dock { padding: 0 16px 14px; display: grid; gap: 10px; }
-  .act {
-    width: 100%; border: 0; cursor: pointer;
-    border-radius: 999px; padding: 17px 22px;
-    font-family: inherit; font-weight: 800; font-size: 16px; letter-spacing: -0.01em;
+    font-optical-sizing: auto;
+    font-size: 15px;
+    line-height: 1.45;
     color: var(--ink);
-    background: rgba(255,255,255,0.95);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 8px 24px rgba(0,0,0,0.3);
-    display: flex; justify-content: space-between; align-items: center; gap: 10px;
-    transition: transform 140ms var(--spring), opacity 160ms ease;
+    background: var(--paper);
+    -webkit-font-smoothing: antialiased;
   }
-  .act:active { transform: scale(0.975); }
-  .act:disabled { background: rgba(255,255,255,0.14); color: var(--faint); box-shadow: none; cursor: default; }
-  .act.go { background: var(--mint); color: #05231A; }
-  .act.ghost { background: rgba(255,255,255,0.12); color: var(--on-glass); box-shadow: inset 0 1px 0 rgba(255,255,255,0.25); }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .mono { font-family: var(--mono); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-  /* ── tab bar ────────────────────────────────────────────────────────── */
-  .tabs {
-    position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 2;
-    border-radius: 999px; padding: 6px;
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+  /* ── the table: denim, with the phone lying on it ──────────────────── */
+  .table { min-height: 100%; }
+  @media (min-width: 821px) {
+    body { background: var(--denim); }
+    .table {
+      position: relative;
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(260px, 340px) auto minmax(0, 300px);
+      justify-content: center; align-items: center;
+      gap: 56px; padding: 36px 40px;
+      background-color: var(--denim);
+      background-image: var(--grain), var(--twill);
+      color: var(--chalk);
+      overflow: hidden;
+    }
+    /* A felled seam down the left, where a pocket would be sewn on. */
+    .table::before, .table::after {
+      content: ""; position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none;
+      border-left: 2px dashed var(--thread); opacity: 0.85;
+    }
+    .table::before { left: 22px; }
+    .table::after  { left: 30px; }
   }
-  .tab {
-    border: 0; background: none; cursor: pointer;
-    font-family: inherit; font-weight: 700; font-size: 12.5px;
-    color: var(--muted);
-    padding: 11px 6px; border-radius: 999px;
-    transition: background 200ms var(--ease), color 200ms var(--ease);
-  }
-  .tab.on { background: rgba(255,255,255,0.9); color: var(--ink); }
 
-  /* ── onboarding ─────────────────────────────────────────────────────── */
-  .intro { position: absolute; inset: 0; z-index: 3; display: grid; grid-template-rows: 1fr auto; }
-  .intro.gone { display: none; }
-  .slides { position: relative; overflow: hidden; }
-  .slide {
-    position: absolute; inset: 0;
-    display: grid; align-content: center; gap: 14px;
-    padding: 0 32px;
-    opacity: 0; transform: translateX(28px);
-    transition: opacity 400ms var(--ease), transform 400ms var(--ease);
-    pointer-events: none;
+  .pitch { display: none; }
+  @media (min-width: 821px) {
+    .pitch { display: block; max-width: 340px; }
+    .pitch .brand { display: flex; align-items: center; gap: 10px; font-weight: 750; font-size: 17px; letter-spacing: -0.01em; margin: 0 0 34px; }
+    .pitch h1 { margin: 0 0 18px; font-size: 54px; font-weight: 800; line-height: 0.96; letter-spacing: -0.04em; text-wrap: balance; }
+    .pitch h1 .u { position: relative; white-space: nowrap; }
+    .pitch h1 .u svg { position: absolute; left: -2%; bottom: -12px; width: 104%; height: 16px; overflow: visible; }
+    .pitch p { margin: 0 0 16px; font-size: 16px; line-height: 1.5; color: var(--chalk-2); text-wrap: pretty; }
+    .pitch .hand { font-family: var(--hand); font-weight: 700; font-size: 21px; line-height: 1.2; color: var(--thread); transform: rotate(-2deg); margin: 26px 0 30px; }
+    .pitch ul { list-style: none; padding: 0; margin: 0; border-top: 1.5px dashed oklch(1 0 0 / 0.35); }
+    .pitch li { border-bottom: 1.5px dashed oklch(1 0 0 / 0.35); }
+    .pitch a, .pitch li > button {
+      display: flex; justify-content: space-between; width: 100%; padding: 11px 0;
+      background: none; border: 0; text-align: left; color: var(--chalk); font-weight: 600; font-size: 15px; text-decoration: none;
+    }
+    .pitch a:hover, .pitch li > button:hover { text-decoration: underline; text-underline-offset: 4px; }
+    .pitch :focus-visible { outline-color: var(--chalk); }
+    .theme { display: inline-flex; margin-top: 22px; border: 1.5px solid oklch(1 0 0 / 0.4); border-radius: var(--r); overflow: hidden; }
+    .theme button { border: 0; background: none; color: var(--chalk-2); padding: 7px 12px; font-size: 13px; font-weight: 600; }
+    .theme button + button { border-left: 1.5px solid oklch(1 0 0 / 0.4); }
+    .theme button[aria-pressed="true"] { background: var(--chalk); color: var(--denim-dark); }
   }
-  .slide.on { opacity: 1; transform: none; pointer-events: auto; }
-  .slide .badge {
-    width: 64px; height: 64px; border-radius: 22px;
-    display: grid; place-items: center;
-    margin-bottom: 4px;
-  }
-  /* Drawn marks rather than emoji: two hands, a signal, a key. Built from
-     borders so they inherit weight and need no icon font. */
-  .mark { display: block; position: relative; }
-  .m1 { width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--mint); }
-  .m1::after {
-    content: ""; position: absolute; left: 13px; top: 0;
-    width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--gold);
-  }
-  .m2 { width: 8px; height: 8px; border-radius: 50%; background: var(--sky); }
-  .m2::before, .m2::after {
-    content: ""; position: absolute; border-radius: 50%;
-    border: 3px solid var(--sky); opacity: 0.55;
-  }
-  .m2::before { inset: -9px; }
-  .m2::after  { inset: -19px; opacity: 0.25; }
-  .m3 { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--violet); }
-  .m3::after {
-    content: ""; position: absolute; left: 50%; top: 16px;
-    width: 3px; height: 17px; background: var(--violet); transform: translateX(-50%);
-    box-shadow: 5px 6px 0 -1px var(--violet), 5px 12px 0 -1px var(--violet);
-  }
-  .slide h2 { margin: 0; font-size: 31px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.08; }
-  .slide p { margin: 0; font-size: 15.5px; line-height: 1.55; color: var(--muted); font-weight: 500; }
 
-  .pips { display: flex; gap: 6px; justify-content: center; padding-bottom: 14px; }
-  .pip { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.28); transition: all 300ms var(--ease); }
-  .pip.on { width: 20px; border-radius: 999px; background: #fff; }
+  /* Chalk notes about the prototype, pinned to whatever they describe. */
+  .notes { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+  .cnote { position: absolute; width: 230px; font-family: var(--hand); font-weight: 700; font-size: 19px; line-height: 1.15; color: var(--chalk); transition: opacity 200ms linear; }
+  .cnote span { display: block; transform: rotate(var(--tilt, -2deg)); transform-origin: left center; text-wrap: balance; }
+  .cnote svg { position: absolute; overflow: visible; left: 0; top: 0; width: 1px; height: 1px; }
+  .cnote path { fill: none; stroke: var(--chalk); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.9; }
+  @media (max-width: 1239px) { .notes { display: none; } }
 
-  /* ── sheet ──────────────────────────────────────────────────────────── */
-  .scrim {
-    position: absolute; inset: 0; z-index: 4;
-    background: rgba(5, 6, 10, 0.5);
-    backdrop-filter: blur(3px);
-    opacity: 0; pointer-events: none;
-    transition: opacity 300ms var(--ease);
+  /* ── the phone ─────────────────────────────────────────────────────── */
+  .device {
+    position: relative; isolation: isolate;
+    width: 100vw; height: 100dvh;
+    background: var(--paper);
+    display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow: clip;
   }
-  .scrim.on { opacity: 1; pointer-events: auto; }
+  .device::after { content: ""; position: absolute; inset: 0; background-image: var(--grain); pointer-events: none; z-index: 20; mix-blend-mode: multiply; opacity: 0.7; }
+  @media (min-width: 821px) {
+    .device {
+      width: 396px; height: min(860px, calc(100vh - 72px));
+      border: 11px solid var(--bezel); border-radius: 46px;
+      z-index: 2;
+    }
+  }
 
+  .status { display: flex; justify-content: space-between; align-items: center; padding: 10px 22px 4px; font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--ink-2); }
+  .status .sig { display: flex; align-items: center; gap: 7px; }
+  .main { position: relative; overflow: clip; }
+
+  .screen {
+    position: absolute; inset: 0; z-index: var(--z-screen);
+    display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+    visibility: hidden; opacity: 0;
+    transition: opacity 180ms var(--out-quart), visibility 0s linear 180ms;
+  }
+  .screen.on { visibility: visible; opacity: 1; transition: opacity 180ms var(--out-quart); }
+  .bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 12px 20px 12px; }
+  .bar h1 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
+  .bar .sub { margin: 5px 0 0; font-size: 13.5px; color: var(--ink-2); }
+  .body { overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 4px 20px 22px; scrollbar-width: none; }
+  .body::-webkit-scrollbar { display: none; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; margin: 26px 0 8px; font-size: 16px; font-weight: 750; letter-spacing: -0.02em; }
+  .head .aside { font-size: 13px; font-weight: 500; color: var(--ink-2); }
+  .head button.aside { background: none; border: 0; padding: 0; font-weight: 650; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-strong); }
+
+  /* ── controls ──────────────────────────────────────────────────────── */
+  .dock { padding: 10px 20px 16px; display: grid; gap: 8px; }
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 54px; width: 100%; padding: 0 18px;
+    border: 2px solid var(--ink); border-radius: var(--r);
+    background: var(--ink); color: var(--on-ink);
+    font-size: 16.5px; font-weight: 750; letter-spacing: -0.015em;
+    transition: background-color 120ms linear, color 120ms linear, border-color 120ms linear;
+  }
+  .btn:active:not(:disabled) { background: var(--ink-2); border-color: var(--ink-2); }
+  .btn:disabled { background: transparent; color: var(--ink-3); border-color: var(--rule-strong); border-style: dashed; cursor: default; }
+  .btn.quiet { background: transparent; color: var(--ink); border-color: var(--rule-strong); }
+  .btn.quiet:active { background: var(--paper-2); }
+  .btn.danger { background: var(--red); border-color: var(--red); color: var(--on-ink); }
+  .btn .amt { font-family: var(--mono); font-weight: 700; }
+  .btn.busy, .btn.busy:disabled { color: transparent; position: relative; background: var(--ink); border: 2px solid var(--ink); }
+  .btn.busy::after { content: ""; position: absolute; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--on-ink); border-right-color: transparent; animation: spin 700ms linear infinite; }
+  @keyframes spin { to { transform: rotate(1turn); } }
+  .link { background: none; border: 0; padding: 0; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-strong); }
+
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1.5px solid var(--ink); border-radius: var(--r); overflow: hidden; }
+  .seg button { border: 0; background: var(--card); min-height: 42px; font-size: 14px; font-weight: 650; color: var(--ink-2); }
+  .seg button + button { border-left: 1.5px solid var(--ink); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+
+  .sk { display: block; background: var(--paper-2); border-radius: var(--r-sm); animation: breathe 1.2s ease-in-out infinite alternate; }
+  @keyframes breathe { to { opacity: 0.45; } }
+
+  /* ── stamps ────────────────────────────────────────────────────────── */
+  /* One per handoff. Ink is masked with noise so it lands the way a rubber
+     stamp does: heavy in places, missing in others. */
+  .stamp {
+    --c: var(--stamp-ink);
+    flex: none; position: relative;
+    width: 60px; height: 60px; border-radius: 50%;
+    border: 2.5px solid var(--c); color: var(--c);
+    display: grid; place-content: center; justify-items: center; gap: 0;
+    font-family: var(--mono); text-transform: uppercase; line-height: 1.05;
+    transform: rotate(var(--rot, -8deg));
+    -webkit-mask: var(--ink-mask) 0 0 / 120px 120px; mask: var(--ink-mask) 0 0 / 120px 120px;
+  }
+  .stamp::before { content: ""; position: absolute; inset: 3px; border-radius: 50%; border: 1px solid var(--c); }
+  .stamp b { font-size: 9.5px; font-weight: 700; letter-spacing: 0.02em; max-width: 46px; overflow: hidden; text-overflow: clip; white-space: nowrap; }
+  .stamp i { font-style: normal; font-size: 12px; font-weight: 700; letter-spacing: -0.02em; margin: 1px 0; }
+  .stamp s { text-decoration: none; font-size: 7.5px; font-weight: 600; letter-spacing: 0.08em; }
+  .stamp.yours { --c: var(--slip-ink-2); border-style: dashed; -webkit-mask: none; mask: none; opacity: 0.8; }
+  .stamp.yours::before { display: none; }
+  .stamp.thump { animation: thump 260ms var(--out-quart) both; }
+  @keyframes thump { from { transform: rotate(var(--rot)) scale(1.7); opacity: 0; } 60% { opacity: 1; } }
+
+  .settled-stamp {
+    display: inline-grid; place-items: center;
+    padding: 5px 12px 4px; border: 3px solid var(--paid-ink); border-radius: 4px;
+    color: var(--paid-ink); font-family: var(--mono); font-weight: 700; font-size: 20px; letter-spacing: 0.08em;
+    outline: 1.5px solid var(--paid-ink); outline-offset: 2px;
+    transform: rotate(-9deg);
+    -webkit-mask: var(--ink-mask) 0 0 / 140px 140px; mask: var(--ink-mask) 0 0 / 140px 140px;
+  }
+  .settled-stamp.slam { animation: slam 300ms var(--out-quart) both; }
+  @keyframes slam { from { transform: rotate(-9deg) scale(2.2); opacity: 0; } 55% { opacity: 1; } }
+  .paid { display: inline-block; font-family: var(--mono); font-weight: 700; font-size: 10.5px; letter-spacing: 0.08em; color: var(--green); border: 2px solid var(--green); border-radius: 3px; padding: 1px 5px 0; transform: rotate(-6deg); -webkit-mask: var(--ink-mask) 0 0 / 90px 90px; mask: var(--ink-mask) 0 0 / 90px 90px; }
+
+  /* ── the slip ──────────────────────────────────────────────────────── */
+  .slip {
+    --perf: 108px;
+    position: relative;
+    background: var(--slip); color: var(--slip-ink);
+    border-radius: 4px;
+    touch-action: none; user-select: none; cursor: grab;
+    transform: rotate(-1.2deg);
+    -webkit-mask:
+      radial-gradient(circle 9px at 0 var(--perf), #0000 97%, #000) left / 51% 100% no-repeat,
+      radial-gradient(circle 9px at 100% var(--perf), #0000 97%, #000) right / 51% 100% no-repeat;
+            mask:
+      radial-gradient(circle 9px at 0 var(--perf), #0000 97%, #000) left / 51% 100% no-repeat,
+      radial-gradient(circle 9px at 100% var(--perf), #0000 97%, #000) right / 51% 100% no-repeat;
+    transition: transform 260ms var(--out-expo);
+  }
+  .slip::after { content: ""; position: absolute; inset: 0; background-image: var(--grain); border-radius: inherit; pointer-events: none; mix-blend-mode: multiply; }
+  .slip.lifted { cursor: grabbing; transition: none; z-index: 6; background: var(--slip-deep); }
+  .s-top { height: var(--perf); padding: 13px 18px 0; }
+  .s-row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: var(--slip-ink-2); }
+  .s-row b { color: var(--slip-ink); font-weight: 750; }
+  .s-row button { background: none; border: 0; padding: 4px 0 4px 8px; font-family: var(--mono); font-size: 12.5px; color: var(--slip-ink); font-weight: 700; }
+  .s-amt { font-family: var(--mono); font-size: 46px; font-weight: 700; letter-spacing: -0.05em; line-height: 1.05; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .s-amt small { font-size: 14px; font-weight: 600; letter-spacing: 0; margin-left: 8px; color: var(--slip-ink-2); }
+  .s-perf { height: 0; margin: 0 16px; border-top: 2px dashed color-mix(in oklch, var(--slip-ink) 40%, transparent); }
+  .stamps { display: flex; align-items: center; padding: 14px 14px 6px 16px; overflow-x: auto; scrollbar-width: none; }
+  .stamps::-webkit-scrollbar { display: none; }
+  .stamps .stamp + .stamp { margin-left: -7px; }
+  .s-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 4px 18px 13px; font-size: 13px; color: var(--slip-ink-2); }
+  .s-foot b { color: var(--slip-ink); font-family: var(--mono); font-weight: 700; }
+  .s-foot .hand { font-family: var(--hand); font-size: 15px; font-weight: 700; color: var(--slip-ink); }
+
+  /* ── the pocket the slip sits in ───────────────────────────────────── */
+  .pocket {
+    position: relative;
+    background-color: var(--denim);
+    background-image: var(--grain), var(--twill);
+    border-radius: 6px 6px 26px 26px;
+    padding: 18px 14px 20px;
+    color: var(--chalk);
+  }
+  .pocket::before { content: ""; position: absolute; inset: 7px; border: 1.5px dashed var(--thread); border-radius: 3px 3px 20px 20px; pointer-events: none; }
+  .pocket::after { content: ""; position: absolute; left: 7px; right: 7px; top: 12px; border-top: 1.5px dashed var(--thread); pointer-events: none; }
+  .pocket .empty { position: relative; z-index: 1; padding: 22px 8px 10px; text-align: center; }
+  .pocket .empty p { margin: 0; font-family: var(--hand); font-weight: 700; font-size: 21px; line-height: 1.15; transform: rotate(-2deg); }
+  .pocket .empty small { display: block; margin-top: 10px; font-family: var(--face); font-size: 13.5px; font-weight: 500; color: var(--chalk-2); text-wrap: pretty; }
+  .pocket .slip { z-index: 1; }
+
+  /* ── coach: a note taped to the page ───────────────────────────────── */
+  .coach {
+    position: relative; margin: 6px 4px 16px; padding: 18px 16px 12px;
+    background: var(--card); color: var(--ink);
+    border: 1px solid var(--rule);
+    transform: rotate(-0.8deg);
+  }
+  .coach::before { content: ""; position: absolute; top: -9px; left: 50%; width: 84px; height: 20px; margin-left: -42px; background: var(--tape); transform: rotate(-3deg); }
+  .coach p { margin: 0; font-family: var(--hand); font-size: 17.5px; line-height: 1.3; text-wrap: pretty; }
+  .coach p b { font-weight: 700; color: var(--red); margin-right: 4px; }
+  .coach .link { margin-top: 8px; font-size: 12.5px; color: var(--ink-2); }
+
+  .radio { display: flex; align-items: center; gap: 9px; font-size: 13.5px; color: var(--ink-2); margin: 0 0 14px; }
+  .radio .led { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex: none; }
+  .radio.off .led { background: none; border: 1.5px solid var(--ink-3); }
+  .radio.off { color: var(--ink); }
+  .radio .link { margin-left: auto; }
+
+  /* ── people ────────────────────────────────────────────────────────── */
+  .people { list-style: none; margin: 0; padding: 0; border-top: 1.5px solid var(--ink); }
+  .people li { border-bottom: 1px solid var(--rule); }
+  .person {
+    display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px;
+    width: calc(100% + 16px); margin: 0 -8px; padding: 11px 8px;
+    background: none; border: 0; border-radius: var(--r); text-align: left;
+    transition: background-color 120ms linear, box-shadow 120ms linear;
+  }
+  .person[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--ink); }
+  .person.target { background: color-mix(in oklch, var(--slip) 40%, var(--paper)); box-shadow: inset 0 0 0 2px var(--slip-deep); }
+  .person.enter { animation: enter 260ms var(--out-quart) both; }
+  @keyframes enter { from { opacity: 0; transform: translateY(-4px); } }
+  .av { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--paper-2); border: 1.5px solid var(--rule-strong); font-weight: 750; font-size: 14px; letter-spacing: -0.02em; }
+  /* Met is inked in, like a stamp: the only thing an avatar's colour means
+     is whether this person counts toward your rank. */
+  .av.met { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+  .av.you { background: var(--card); border: 2px solid var(--ink); }
+  .p-name { display: block; font-size: 16px; font-weight: 700; letter-spacing: -0.015em; }
+  .p-state { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); margin-top: 1px; }
+  .p-state .mini { width: 16px; height: 10px; border-radius: 1.5px; background: var(--slip); transform: rotate(-8deg); flex: none; }
+  .p-state .for { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; color: var(--red); border: 1.5px solid var(--red); border-radius: 3px; padding: 1px 4px 0; transform: rotate(-4deg); }
+  .p-dist { display: grid; justify-items: end; gap: 3px; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+  .bars { display: flex; align-items: flex-end; gap: 2px; height: 11px; }
+  .bars i { width: 3px; background: var(--rule-strong); border-radius: 1px; }
+  .bars i:nth-child(1) { height: 4px; } .bars i:nth-child(2) { height: 7px; } .bars i:nth-child(3) { height: 11px; }
+  .bars[data-b="1"] i:nth-child(1), .bars[data-b="2"] i:nth-child(-n+2), .bars[data-b="3"] i { background: var(--ink); }
+  .sk-row { cursor: default; }
+  .sk-row .sk.a { width: 40px; height: 40px; border-radius: 50%; }
+  .sk-row .sk.l1 { width: 96px; height: 12px; }
+  .sk-row .sk.l2 { width: 150px; height: 10px; margin-top: 7px; }
+  .sk-row .sk.r { width: 30px; height: 10px; }
+  .people-note { font-size: 13.5px; color: var(--ink-2); margin: 10px 0 0; text-wrap: pretty; }
+
+  /* ── events: a ruled logbook ───────────────────────────────────────── */
+  .events { list-style: none; margin: 0; padding: 0; }
+  .ev { display: grid; grid-template-columns: 30px 1fr auto; gap: 12px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+  .ev .av { width: 30px; height: 30px; font-size: 11.5px; }
+  .ev p { margin: 4px 0 0; font-size: 14px; line-height: 1.4; color: var(--ink-2); text-wrap: pretty; }
+  .ev p b { color: var(--ink); font-weight: 700; }
+  .ev p .v { font-family: var(--mono); font-weight: 700; color: var(--ink); font-size: 13.5px; }
+  .ev p .paid { margin-right: 6px; vertical-align: 1px; }
+  .ev time { font-family: var(--mono); font-size: 12px; color: var(--ink-3); padding-top: 5px; }
+  .ev.new { animation: enter 260ms var(--out-quart) both; }
+  .ev.sk-ev .sk.a { width: 30px; height: 30px; border-radius: 50%; }
+  .ev.sk-ev .sk.l { height: 11px; margin-top: 6px; }
+  .group { margin: 22px 0 4px; font-family: var(--hand); font-size: 18px; font-weight: 700; color: var(--red); transform: rotate(-1deg); transform-origin: left; }
+  .group:first-child { margin-top: 2px; }
+  .feedscreen { grid-template-rows: auto auto minmax(0, 1fr); }
+  .filter { margin: 0 20px; }
+  #feed { padding-top: 14px; }
+
+  /* ── receipts ──────────────────────────────────────────────────────── */
+  .receipt {
+    position: relative;
+    background: var(--receipt); color: var(--receipt-ink);
+    padding: 18px 18px 26px;
+    font-family: var(--mono); font-size: 13px; line-height: 1.5;
+    box-shadow: inset 0 0 0 1px oklch(0.24 0.02 262 / 0.12);
+    transform: rotate(-0.5deg);
+    -webkit-mask: linear-gradient(#000 0 0) top / 100% calc(100% - 9px) no-repeat, conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / 16px 9px repeat-x;
+            mask: linear-gradient(#000 0 0) top / 100% calc(100% - 9px) no-repeat, conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / 16px 9px repeat-x;
+  }
+  .receipt .rh { text-align: center; font-weight: 700; letter-spacing: 0.12em; font-size: 12.5px; }
+  .receipt .rs { text-align: center; color: var(--receipt-ink-2); font-size: 11.5px; margin-bottom: 10px; }
+  .receipt hr { border: 0; border-top: 1.5px dashed oklch(0.24 0.02 262 / 0.35); margin: 10px 0; }
+  .receipt ol { list-style: none; counter-reset: t; margin: 0; padding: 0; }
+  .receipt ol li { counter-increment: t; display: grid; grid-template-columns: 22px 1fr; gap: 6px; padding: 6px 0; font-family: var(--face); font-size: 14px; line-height: 1.4; color: var(--receipt-ink-2); text-wrap: pretty; }
+  .receipt ol li::before { content: counter(t, decimal-leading-zero); font-family: var(--mono); font-size: 11.5px; font-weight: 700; color: var(--receipt-ink); padding-top: 2px; }
+  .receipt ol b { color: var(--receipt-ink); font-weight: 700; }
+  .receipt .docs { display: flex; gap: 16px; font-family: var(--face); font-size: 13.5px; }
+  .receipt .docs .link { text-decoration-color: oklch(0.24 0.02 262 / 0.4); }
+  .receipt :focus-visible { outline-color: var(--receipt-ink); }
+  .receipt dl { margin: 0; }
+  .receipt dl div { display: flex; align-items: baseline; gap: 6px; padding: 3px 0; }
+  .receipt dt { color: var(--receipt-ink-2); }
+  .receipt dd { margin: 0; font-weight: 700; order: 2; }
+  .receipt dl div::after { content: ""; order: 1; flex: 1; border-bottom: 1.5px dotted oklch(0.24 0.02 262 / 0.4); transform: translateY(-3px); }
+  .receipt .earned { color: var(--paid-ink); }
+
+  .sign { position: relative; margin-top: 16px; display: grid; gap: 4px; }
+  .sign .pad { position: relative; height: 62px; border-bottom: 1.5px solid var(--receipt-ink); }
+  .sign .pad svg { position: absolute; left: 22px; bottom: 2px; width: 190px; height: 58px; overflow: visible; }
+  .sign .pad path { fill: none; stroke: oklch(0.36 0.14 262); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+  .sign.done .pad path { stroke-dashoffset: 0; transition: stroke-dashoffset 900ms cubic-bezier(0.5, 0, 0.3, 1); }
+  .sign .x { position: absolute; left: 0; bottom: 4px; font-weight: 700; }
+  .sign .cap { display: flex; justify-content: space-between; font-size: 11px; color: var(--receipt-ink-2); }
+  .sign button { justify-self: start; margin-top: 8px; font-family: var(--face); font-size: 14px; font-weight: 700; padding: 9px 14px; border-radius: var(--r); border: 2px solid var(--receipt-ink); background: var(--receipt); color: var(--receipt-ink); }
+  .sign button[aria-pressed="true"] { background: var(--receipt-ink); color: var(--receipt); }
+
+  /* ── key tag ───────────────────────────────────────────────────────── */
+  .tagwrap { position: relative; padding: 10px 0 0 26px; }
+  .tagwrap .string { position: absolute; left: 0; top: 0; width: 60px; height: 70px; overflow: visible; }
+  .tagwrap .string path { fill: none; stroke: var(--ink-2); stroke-width: 1.5; }
+  .ktag {
+    position: relative; min-height: 118px;
+    background-color: var(--kraft); background-image: var(--grain);
+    color: var(--kraft-ink);
+    padding: 16px 16px 14px 44px;
+    clip-path: polygon(22px 0, 100% 0, 100% 100%, 22px 100%, 0 calc(100% - 22px), 0 22px);
+    transform: rotate(-1.5deg);
+  }
+  .ktag::before { content: ""; position: absolute; left: 12px; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; background: var(--paper); box-shadow: 0 0 0 3px oklch(0.64 0.06 70); }
+  .ktag.blank { background: none; border: 2px dashed var(--rule-strong); clip-path: none; transform: none; color: var(--ink-2); display: grid; align-content: center; min-height: 96px; }
+  .ktag.blank::before { background: none; border: 2px dashed var(--rule-strong); box-shadow: none; }
+  .ktag .kh { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .krow { display: grid; grid-template-columns: 52px 1fr; gap: 12px; align-items: center; }
+  .ident { display: grid; grid-template-columns: repeat(7, 1fr); width: 52px; height: 52px; border: 1.5px solid var(--kraft-ink); background: color-mix(in oklch, var(--kraft) 70%, white); }
+  .ident i.on { background: var(--kraft-ink); }
+  .keytext { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; word-break: break-all; font-weight: 600; }
+  .keytext span { margin-right: 0.45ch; }
+  .keytext span:nth-child(even) { opacity: 0.7; }
+  .ktag .where { font-family: var(--hand); font-size: 15px; font-weight: 700; margin-top: 8px; }
+  .ktag .sk { background: color-mix(in oklch, var(--kraft-ink) 18%, transparent); }
+
+  /* ── you ───────────────────────────────────────────────────────────── */
+  .rank-now { margin: 0; font-size: 40px; font-weight: 800; letter-spacing: -0.045em; line-height: 1; }
+  .rank-cap { margin: 8px 0 0; font-family: var(--hand); font-size: 18px; font-weight: 700; color: var(--red); transform: rotate(-1.5deg); transform-origin: left; }
+  .ladder { list-style: none; margin: 16px 0 0; padding: 0; }
+  .ladder li { position: relative; display: grid; grid-template-columns: 22px 1fr auto; gap: 12px; align-items: center; padding: 7px 0; font-size: 15px; color: var(--ink-3); }
+  .ladder li::before { content: ""; position: absolute; left: 10px; top: -50%; height: 100%; border-left: 2px dashed var(--rule-strong); }
+  .ladder li:first-child::before { display: none; }
+  .ladder li.done::before, .ladder li.now::before { border-left-style: solid; border-color: var(--ink); }
+  .ladder .dot { position: relative; z-index: 1; width: 22px; height: 22px; display: grid; place-items: center; }
+  .ladder .dot::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--paper); border: 2px solid var(--rule-strong); }
+  .ladder li.done { color: var(--ink-2); }
+  .ladder li.done .dot::after { background: var(--ink); border-color: var(--ink); }
+  .ladder li.now { color: var(--ink); font-weight: 750; }
+  .ladder li.now .dot::after { width: 16px; height: 16px; background: var(--slip); border: 3px solid var(--ink); }
+  .ladder .at { font-family: var(--mono); font-size: 12px; }
+  .rule { font-size: 13.5px; color: var(--ink-2); margin: 14px 0 0; text-wrap: pretty; max-width: 42ch; }
+  .rows { list-style: none; margin: 0; padding: 0; border-top: 1.5px solid var(--ink); }
+  .rows li { border-bottom: 1px solid var(--rule); }
+  .rows button { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 13px 0; background: none; border: 0; text-align: left; font-size: 15px; font-weight: 650; }
+  .rows button .meta { font-size: 12px; font-weight: 600; color: var(--ink-2); font-family: var(--mono); }
+  .rows button.danger { color: var(--red); }
+  .fine { font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin: 18px 0 0; line-height: 1.6; word-break: break-all; }
+
+  /* ── tab bar ───────────────────────────────────────────────────────── */
+  .tabs { z-index: var(--z-tabs); display: grid; grid-template-columns: repeat(3, 1fr); background: var(--card); border-top: 1.5px solid var(--ink); padding-bottom: env(safe-area-inset-bottom); }
+  .tab { position: relative; border: 0; background: none; display: grid; justify-items: center; gap: 2px; padding: 9px 4px 11px; font-size: 12.5px; font-weight: 650; color: var(--ink-3); }
+  .tab svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .tab[aria-current="page"] { color: var(--ink); }
+  .tab[aria-current="page"]::before { content: ""; position: absolute; top: -1.5px; left: 30%; right: 30%; height: 3px; background: var(--ink); }
+  .tab .badge { position: absolute; top: 8px; left: calc(50% + 9px); width: 8px; height: 8px; border-radius: 50%; background: var(--slip-deep); border: 1.5px solid var(--card); }
+
+  /* ── first run ─────────────────────────────────────────────────────── */
+  .intro { position: absolute; inset: 0; z-index: var(--z-intro); background: var(--paper); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+  .ob-top { display: grid; grid-template-columns: 64px 1fr 64px; align-items: center; padding: 6px 12px 0; min-height: 44px; }
+  .ob-top .back { justify-self: start; background: none; border: 0; padding: 8px; font-weight: 650; font-size: 14px; color: var(--ink-2); }
+  .ob-top .back[hidden] { display: block !important; visibility: hidden; }
+  /* Progress is four little slips that fill in as you go. */
+  .progress { display: flex; justify-content: center; gap: 7px; }
+  .progress i { width: 26px; height: 12px; border-radius: 2px; border: 1.5px dashed var(--rule-strong); transform: rotate(-4deg); }
+  .progress i:nth-child(even) { transform: rotate(3deg); }
+  .progress i.done { background: var(--slip); border: 1.5px solid var(--slip-deep); }
+  .ob-count { justify-self: end; padding-right: 8px; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+  .ob-steps { position: relative; overflow: hidden; }
+  .ob-step {
+    position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none;
+    display: flex; flex-direction: column;
+    padding: 18px 24px 12px;
+    visibility: hidden; opacity: 0; transform: translateX(18px);
+    transition: opacity 220ms var(--out-quart), transform 220ms var(--out-quart), visibility 0s linear 220ms;
+  }
+  .ob-step::-webkit-scrollbar { display: none; }
+  .ob-step > * { flex: none; }
+  .ob-step.on { visibility: visible; opacity: 1; transform: none; transition: opacity 220ms var(--out-quart), transform 220ms var(--out-quart); }
+  .ob-step.left { transform: translateX(-18px); }
+  .ob-step h2 { margin: 0 0 10px; font-size: 31px; font-weight: 800; letter-spacing: -0.04em; line-height: 1.02; text-wrap: balance; }
+  .ob-step > p { margin: 0 0 18px; font-size: 15.5px; color: var(--ink-2); text-wrap: pretty; max-width: 40ch; }
+  .ob-step .scrawl { font-family: var(--hand); font-weight: 700; font-size: 17px; color: var(--red); margin: 0 0 4px; transform: rotate(-2deg); transform-origin: left; }
+
+  .wordmark { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 800; letter-spacing: -0.02em; margin: 4px 0 20px; }
+  .glyph { width: 30px; height: 19px; border-radius: 2px; background: var(--slip); transform: rotate(-6deg);
+    -webkit-mask: radial-gradient(circle 4px at 0 50%, #0000 96%, #000) left / 51% 100% no-repeat, radial-gradient(circle 4px at 100% 50%, #0000 96%, #000) right / 51% 100% no-repeat;
+            mask: radial-gradient(circle 4px at 0 50%, #0000 96%, #000) left / 51% 100% no-repeat, radial-gradient(circle 4px at 100% 50%, #0000 96%, #000) right / 51% 100% no-repeat; }
+  .ob-step h2.hero { font-size: 44px; line-height: 0.95; letter-spacing: -0.05em; margin-bottom: 14px; }
+  .hero .u { position: relative; white-space: nowrap; }
+  .hero .u svg { position: absolute; left: -2%; bottom: -9px; width: 104%; height: 13px; overflow: visible; }
+  .hero .u path, .pitch h1 .u path { fill: none; stroke: var(--red); stroke-width: 3.2; stroke-linecap: round; }
+  .pitch h1 .u path { stroke: var(--thread); }
+
+  /* The demo: one slip, five people. It collects a stamp from each person
+     who carries it, and SETTLED lands when one of them finds signal. */
+  .demo { margin: auto 0; padding: 18px 0 6px; }
+  .demo .slip { cursor: default; touch-action: auto; --perf: 66px; transform: rotate(-2deg); max-width: 330px; margin: 0 auto; }
+  .demo .s-top { padding-top: 10px; }
+  .demo .s-amt { font-size: 32px; margin-top: 2px; }
+  .demo .stamps { min-height: 88px; padding-bottom: 12px; overflow: visible; }
+  .demo .stamp { width: 56px; height: 56px; }
+  .demo .settled-stamp { position: absolute; right: 12px; bottom: 26px; z-index: 2; }
+  .walk { position: relative; list-style: none; margin: 22px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); }
+  .walk::before { content: ""; position: absolute; left: 10%; right: 10%; top: 17px; border-top: 2px dashed var(--rule-strong); }
+  .walk li { position: relative; display: grid; justify-items: center; gap: 4px; font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
+  .walk .av { position: relative; width: 36px; height: 36px; font-size: 12.5px; background: var(--paper); transition: background-color 200ms linear, color 200ms linear, border-color 200ms linear; }
+  .walk li.hit .av { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+  .walk li.holding .av { background: var(--slip); color: var(--slip-ink); border-color: var(--slip-deep); }
+  .walk .role { font-size: 11px; font-weight: 500; color: var(--ink-3); margin-top: -3px; }
+  .walk .ant { position: absolute; top: -17px; left: calc(50% + 10px); width: 16px; height: 16px; color: var(--rule-strong); }
+  .demo.signal .walk .ant { color: var(--green); }
+  .demo figcaption { margin: 14px 0 0; min-height: 44px; font-size: 14.5px; color: var(--ink); text-wrap: pretty; }
+  .demo figcaption .n { font-family: var(--mono); font-size: 12px; color: var(--ink-3); margin-right: 6px; }
+
+  .perm { list-style: none; margin: 4px 0 0; padding: 0; border-top: 1.5px solid var(--ink); }
+  .perm li { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: start; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+  .perm b { display: block; font-size: 16px; font-weight: 700; }
+  .perm .why { display: block; font-size: 14px; color: var(--ink-2); margin-top: 2px; text-wrap: pretty; }
+  .perm .aside { display: block; font-family: var(--hand); font-weight: 700; font-size: 16px; color: var(--red); margin-top: 6px; transform: rotate(-1.5deg); transform-origin: left; }
+  .perm .state { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); border: 1.5px dashed var(--rule-strong); border-radius: 3px; padding: 2px 6px 1px; white-space: nowrap; }
+  .perm .state.yes { color: var(--green); border: 2px solid var(--green); transform: rotate(-5deg); -webkit-mask: var(--ink-mask) 0 0 / 90px 90px; mask: var(--ink-mask) 0 0 / 90px 90px; }
+  .perm .state.no { color: var(--red); border: 2px solid var(--red); transform: rotate(4deg); }
+  .perm-after { font-size: 14px; color: var(--ink-2); margin: 14px 0 0; }
+
+  .field { margin: 26px 0 0; padding: 0; border: 0; }
+  .field legend { padding: 0; font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .field .help { margin: 0 0 14px; font-size: 14px; color: var(--ink-2); text-wrap: pretty; }
+  /* Allowance options are little slips you pick up. */
+  .picks { display: flex; gap: 10px; }
+  .picks button {
+    flex: 1; min-height: 50px; border: 1.5px dashed var(--rule-strong); border-radius: 3px; background: none;
+    font-family: var(--mono); font-weight: 700; font-size: 16px; color: var(--ink-2);
+    display: grid; place-content: center; line-height: 1.1;
+  }
+  .picks button small { font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; }
+  .picks button:nth-child(odd) { transform: rotate(-2deg); } .picks button:nth-child(even) { transform: rotate(2deg); }
+  .picks button[aria-pressed="true"] { background: var(--slip); border: 1.5px solid var(--slip-deep); color: var(--slip-ink); }
+
+  .ob-foot { font-size: 12.5px; color: var(--ink-3); text-align: center; margin: 0; }
+
+  /* ── settlement moment ─────────────────────────────────────────────── */
+  .settle {
+    position: absolute; left: 14px; right: 14px; top: 10px; z-index: var(--z-settle);
+    background: var(--card); border: 1.5px solid var(--ink); border-radius: var(--r);
+    padding: 12px 12px 12px 14px;
+    display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
+    transform: translateY(calc(-100% - 24px)); visibility: hidden;
+    transition: transform 260ms var(--out-quart), visibility 0s linear 260ms;
+  }
+  .settle.up { transform: none; visibility: visible; transition: transform 380ms var(--out-expo); }
+  .settle .what { font-size: 14px; color: var(--ink-2); }
+  .settle .what b { color: var(--ink); }
+  .settle .earn { font-family: var(--hand); font-size: 20px; font-weight: 700; color: var(--green); line-height: 1.1; }
+  .settle .settled-stamp { grid-row: span 2; grid-column: 2; grid-row-start: 1; font-size: 15px; --paid-ink: var(--green); }
+
+  /* ── sheet ─────────────────────────────────────────────────────────── */
+  .scrim { position: absolute; inset: 0; z-index: var(--z-scrim); background: oklch(0.15 0.02 262 / 0.5); opacity: 0; visibility: hidden; transition: opacity 200ms linear, visibility 0s linear 200ms; }
+  .scrim.on { opacity: 1; visibility: visible; transition: opacity 200ms linear; }
   .sheet {
-    position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 5;
-    border-radius: 32px; padding: 20px;
-    transform: translateY(130%);
-    transition: transform 460ms var(--ease);
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: var(--z-sheet);
+    max-height: calc(100% - 36px); display: grid; grid-template-rows: auto minmax(0, 1fr);
+    background: var(--paper); border-top: 1.5px solid var(--ink); border-radius: 16px 16px 0 0;
+    transform: translateY(102%); visibility: hidden;
+    transition: transform 280ms var(--out-quart), visibility 0s linear 280ms;
   }
-  .sheet.up { transform: none; }
-  .grab { width: 38px; height: 5px; border-radius: 999px; background: rgba(255,255,255,0.3); margin: 0 auto 16px; }
-  .sheet h3 { margin: 0 0 6px; font-size: 22px; font-weight: 800; letter-spacing: -0.025em; }
-  .sheet .note { margin: 0 0 18px; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+  .sheet.up { transform: none; visibility: visible; transition: transform 340ms var(--out-expo); }
+  .sheet.tall { height: calc(100% - 36px); }
+  .grab { width: 38px; height: 4px; border-radius: 2px; background: var(--rule-strong); margin: 10px auto 0; }
+  .sheet-body { overflow-y: auto; padding: 16px 20px 20px; }
+  .sheet h3 { margin: 0 0 8px; font-size: 25px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.05; text-wrap: balance; }
+  .sheet p.lede { margin: 0 0 16px; font-size: 14.5px; color: var(--ink-2); text-wrap: pretty; }
+  .sheet .dock { padding: 12px 0 0; }
+  .sheet .receipt { margin: 4px 0 6px; }
+  .legal h4 { margin: 20px 0 4px; font-size: 15.5px; font-weight: 750; }
+  .legal p, .legal li { font-size: 14px; color: var(--ink-2); margin: 0 0 8px; text-wrap: pretty; max-width: 62ch; }
+  .legal ul { padding-left: 18px; margin: 0 0 8px; }
+  .legal .date { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+  /* Android's own dialog: the system's, not ours, so it wears neither
+     Carrier's type nor its objects. */
+  .system {
+    position: absolute; left: 24px; right: 24px; top: 50%; z-index: var(--z-system);
+    transform: translateY(-46%); opacity: 0; visibility: hidden;
+    background: var(--card); border-radius: 24px; padding: 22px 22px 12px;
+    font-family: Roboto, system-ui, sans-serif;
+    transition: opacity 160ms linear, transform 200ms var(--out-quart), visibility 0s linear 200ms;
+  }
+  .system.on { opacity: 1; visibility: visible; transform: translateY(-50%); transition: opacity 160ms linear, transform 200ms var(--out-quart); }
+  .system svg { display: block; margin: 0 auto 14px; width: 26px; height: 26px; color: var(--ink-2); }
+  .system p { margin: 0 0 18px; font-size: 16px; line-height: 1.4; text-align: center; }
+  .system button { display: block; width: 100%; padding: 12px; margin-top: 6px; border: 0; border-radius: 22px; background: var(--paper-2); font-family: inherit; font-size: 14px; font-weight: 500; }
 
   .toast {
-    position: absolute; left: 16px; right: 16px; bottom: 98px; z-index: 6;
-    border-radius: 999px; padding: 14px 20px;
-    font-size: 14px; font-weight: 700; text-align: center;
-    transform: translateY(160%);
-    transition: transform 420ms var(--spring);
+    position: absolute; left: 16px; right: 16px; bottom: 86px; z-index: var(--z-toast);
+    display: flex; align-items: center; gap: 10px;
+    background: var(--ink); color: var(--on-ink); border-radius: var(--r);
+    padding: 13px 16px; font-size: 14.5px; font-weight: 650;
+    transform: translateY(calc(100% + 110px)); visibility: hidden;
+    transition: transform 240ms var(--out-quart), visibility 0s linear 240ms;
   }
-  .toast.up { transform: none; }
+  .toast.up { transform: none; visibility: visible; transition: transform 300ms var(--out-expo); }
+  .toast .v { font-family: var(--mono); }
 
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation: none !important; transition-duration: 1ms !important; }
+    *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+    .ob-step, .ob-step.left { transform: none; }
+    .sk { opacity: 0.8; }
+    .sign.done .pad path { transition: none; }
   }
 </style>
+</head>
+<body>
+<div class="table">
 
-<div class="device">
-  <!-- ── onboarding ── -->
-  <div class="intro" id="intro">
-    <div class="slides">
-      <div class="slide on" data-slide="0">
-        <div class="badge solid"><span class="mark m1"></span></div>
-        <h2>Money that travels by hand</h2>
-        <p>Carrier moves payments between phones that are near each other. No internet, no signal, no accounts. Just people.</p>
-      </div>
-      <div class="slide" data-slide="1">
-        <div class="badge solid"><span class="mark m2"></span></div>
-        <h2>It needs to see who is close</h2>
-        <p>Carrier uses Bluetooth and Wi-Fi Direct to find phones in the room. Nothing leaves your device until it settles.</p>
-      </div>
-      <div class="slide" data-slide="2">
-        <div class="badge solid"><span class="mark m3"></span></div>
-        <h2>This phone is your key</h2>
-        <p>Your key lives in this device's secure storage and signs every handoff. Nobody can carry your money without it.</p>
-      </div>
+  <header class="pitch">
+    <p class="brand"><span class="glyph" aria-hidden="true"></span>Carrier</p>
+    <h1>Money that travels <span class="u">by hand.<svg viewBox="0 0 200 16" preserveAspectRatio="none" aria-hidden="true"><path d="M3 11 C 40 4, 90 3, 130 6 S 185 10, 197 5"/></svg></span></h1>
+    <p>Pay someone when nobody has signal. The payment passes from phone to phone over Bluetooth, picks up a stamp from everyone who carries it, and settles on Solana when any one of them gets back online.</p>
+    <p>Everyone who carried it gets a share.</p>
+    <p class="hand">the phone works. take a slip from someone and pass it on.</p>
+    <ul>
+      <li><a href="overview.html">How the protocol works <span aria-hidden="true">&rarr;</span></a></li>
+      <li><a href="PROTOCOL.md">Read the specification <span aria-hidden="true">&rarr;</span></a></li>
+      <li><button type="button" id="replay">Replay the first run</button></li>
+    </ul>
+    <div class="theme" role="group" aria-label="Phone theme">
+      <button type="button" data-theme-set="system" aria-pressed="true">System</button>
+      <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+      <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
     </div>
-    <div>
-      <div class="pips" id="pips"><span class="pip on"></span><span class="pip"></span><span class="pip"></span></div>
-      <div class="dock">
-        <button class="act go" id="intro-next">Continue</button>
+  </header>
+
+  <div class="device" id="device">
+    <div class="status" aria-hidden="true">
+      <span id="clock">--:--</span>
+      <span class="sig" id="sig">
+        <span>No service</span>
+        <svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M1 11h2M5.5 11V8.5M9.5 11V5.5M13.5 11V2" opacity=".35"/><path d="M2 2l12 9"/>
+        </svg>
+      </span>
+    </div>
+
+    <div class="main">
+      <!-- ── first run ── -->
+      <div class="intro" id="intro">
+        <div class="ob-top">
+          <button type="button" class="back" id="ob-back" hidden>Back</button>
+          <div class="progress" aria-hidden="true"><i class="done"></i><i></i><i></i><i></i></div>
+          <span class="ob-count" id="ob-count">1 of 4</span>
+        </div>
+
+        <div class="ob-steps">
+          <section class="ob-step on" data-step="0" aria-labelledby="ob0">
+            <div class="wordmark"><span class="glyph" aria-hidden="true"></span>Carrier</div>
+            <h2 class="hero" id="ob0">Money that travels <span class="u">by hand<svg viewBox="0 0 200 13" preserveAspectRatio="none" aria-hidden="true"><path d="M3 9 C 40 3, 90 2, 130 5 S 185 8, 197 4"/></svg></span></h2>
+            <p>Pay someone when nobody has signal. The payment passes from phone to phone, and the first phone to get back online settles it. Everyone who carried it gets a share.</p>
+
+            <figure class="demo" id="demo" aria-describedby="demo-desc">
+              <div class="slip" aria-hidden="true">
+                <div class="s-top">
+                  <div class="s-row"><span>For <b>Zanele</b></span><span class="mono" style="font-size:12px">from Ama</span></div>
+                  <div class="s-amt">12.00<small>USDC</small></div>
+                </div>
+                <div class="s-perf"></div>
+                <div class="stamps" id="demo-stamps"></div>
+                <span class="settled-stamp" id="demo-settled" hidden>SETTLED</span>
+              </div>
+              <ol class="walk" aria-hidden="true">
+                <li><span class="av">Am</span>Ama<span class="role">sends</span></li>
+                <li><span class="av">Ch</span>Chidi<span class="role">carries</span></li>
+                <li><span class="av">Me</span>Mei<span class="role">carries</span></li>
+                <li><svg class="ant" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 8v7M5 5a4.3 4.3 0 0 1 6 0M2.8 2.8a7.4 7.4 0 0 1 10.4 0"/></svg><span class="av">Tu</span>Tunde<span class="role">gets signal</span></li>
+                <li><span class="av">Za</span>Zanele<span class="role">is paid</span></li>
+              </ol>
+              <figcaption id="demo-cap" aria-hidden="true"></figcaption>
+              <p class="sr" id="demo-desc">Ama signs a payment of 12.00 for Zanele with no signal. Chidi and then Mei carry it, and each handoff adds a stamp signed by both phones. When Tunde finds signal the chain settles on Solana: Zanele is paid, and Chidi, Mei and Tunde each receive a share.</p>
+            </figure>
+          </section>
+
+          <section class="ob-step" data-step="1" aria-labelledby="ob1">
+            <p class="scrawl">first, the radio</p>
+            <h2 id="ob1">Let Carrier find phones near you</h2>
+            <p>Handoffs travel over local radio, about as far as you could pass something across a room.</p>
+            <ul class="perm">
+              <li>
+                <div><b>Nearby devices</b><span class="why">Bluetooth and Wi-Fi Direct, to see phones within about 10 metres and hand payments to them.</span></div>
+                <span class="state" data-perm-state>Not asked</span>
+              </li>
+              <li>
+                <div><b>Location</b><span class="why">Android requires it before any app may scan for other phones.</span><span class="aside">we never look at where you are</span></div>
+                <span class="state" data-perm-state>Not asked</span>
+              </li>
+            </ul>
+            <p class="perm-after" id="perm-after" hidden></p>
+          </section>
+
+          <section class="ob-step" data-step="2" aria-labelledby="ob2">
+            <p class="scrawl">then, your key</p>
+            <h2 id="ob2">This phone gets its own key</h2>
+            <p>It signs every handoff you make. It is made on this phone and never leaves it. No account, no password.</p>
+            <div class="tagwrap" id="keybox" aria-live="polite"></div>
+            <fieldset class="field">
+              <legend>Offline allowance</legend>
+              <p class="help">The most you can have out in payments nobody has settled yet. It is set aside on Solana, where anyone carrying for you can check it is really there.</p>
+              <div class="picks" id="allowance" role="group" aria-label="Offline allowance in USDC">
+                <button type="button" data-v="10" aria-pressed="false">10<small>USDC</small></button>
+                <button type="button" data-v="25" aria-pressed="true">25<small>USDC</small></button>
+                <button type="button" data-v="50" aria-pressed="false">50<small>USDC</small></button>
+                <button type="button" data-v="100" aria-pressed="false">100<small>USDC</small></button>
+              </div>
+            </fieldset>
+          </section>
+
+          <section class="ob-step" data-step="3" aria-labelledby="ob3">
+            <p class="scrawl">last thing, promise</p>
+            <h2 id="ob3">Sign for it</h2>
+            <div class="receipt">
+              <div class="rh">CARRIER &middot; TERMS</div>
+              <div class="rs">DEVNET BUILD &middot; 23 SEP 2026</div>
+              <hr>
+              <ol>
+                <li><span>This is a <b>test build on Solana devnet.</b> Balances are test tokens and are worth nothing.</span></li>
+                <li><span>When a payment settles, <b>the keys of everyone who carried it are written to a public ledger,</b> with the time of each handoff. That record cannot be deleted.</span></li>
+                <li><span>Nothing else leaves your phone. <b>No name, contacts or location.</b></span></li>
+                <li><span>Sign two payments against the same slot and <b>your deposit is taken</b> and paid to whoever was cheated.</span></li>
+              </ol>
+              <hr>
+              <div class="docs">
+                <button type="button" class="link" data-legal="terms">Terms of use</button>
+                <button type="button" class="link" data-legal="privacy">Privacy policy</button>
+              </div>
+              <div class="sign" id="sign">
+                <div class="pad">
+                  <span class="x" aria-hidden="true">&times;</span>
+                  <svg viewBox="0 0 190 58" aria-hidden="true"><path pathLength="1" d="M6 40 C 12 18, 22 8, 24 20 C 26 32, 16 46, 22 44 C 30 42, 34 22, 40 22 C 46 22, 40 40, 46 40 C 52 40, 54 26, 60 26 C 66 26, 60 40, 66 40 C 74 40, 76 20, 84 14 C 90 10, 90 30, 86 42 C 84 48, 94 36, 102 30 C 108 26, 110 38, 116 38 C 124 38, 128 28, 136 28 C 144 28, 140 40, 150 36 C 160 32, 172 28, 184 30"/></svg>
+                </div>
+                <div class="cap"><span>SIGNED ON THIS PHONE</span><span id="sign-date"></span></div>
+                <button type="button" id="sign-btn" aria-pressed="false">Sign to agree</button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="dock">
+          <button type="button" class="btn" id="ob-next">Set up this phone</button>
+          <button type="button" class="btn quiet" id="ob-alt" hidden>Not now</button>
+          <p class="ob-foot" id="ob-foot">About a minute. No sign-up.</p>
+        </div>
       </div>
+
+      <!-- ── carry ── -->
+      <section class="screen" id="s-carry" aria-labelledby="t-carry">
+        <header class="bar">
+          <div>
+            <h1 id="t-carry">Carry</h1>
+            <p class="sub" id="carry-sub">Nothing in your pocket</p>
+          </div>
+        </header>
+        <div class="body" id="carry-body">
+          <div class="radio" id="radio"></div>
+          <div id="coach"></div>
+          <div class="pocket" id="pocket"></div>
+          <div class="head"><span>Near you</span><span class="aside mono" id="near-count"></span></div>
+          <ul class="people" id="people" aria-label="People near you"></ul>
+          <p class="people-note" id="people-note" hidden></p>
+          <div class="head"><span>Just now</span><button type="button" class="aside" data-go="s-around">See all</button></div>
+          <ul class="events" id="peek"></ul>
+        </div>
+        <div class="dock">
+          <button type="button" class="btn" id="primary" disabled>Looking for people</button>
+        </div>
+      </section>
+
+      <!-- ── around ── -->
+      <section class="screen feedscreen" id="s-around" aria-labelledby="t-around">
+        <header class="bar">
+          <div>
+            <h1 id="t-around">Around you</h1>
+            <p class="sub">Handoffs and settlements your phone has heard about</p>
+          </div>
+        </header>
+        <div class="seg filter" id="filter" role="group" aria-label="Show">
+          <button type="button" data-f="all" aria-pressed="true">Everyone</button>
+          <button type="button" data-f="mine" aria-pressed="false">Just you</button>
+        </div>
+        <div class="body" id="feed" aria-live="polite"></div>
+      </section>
+
+      <!-- ── you ── -->
+      <section class="screen" id="s-you" aria-labelledby="t-you">
+        <header class="bar">
+          <div>
+            <h1 id="t-you">You</h1>
+            <p class="sub">Standing, earnings and this phone's key</p>
+          </div>
+        </header>
+        <div class="body" id="you-body"></div>
+      </section>
+
+      <div class="settle" id="settle" role="status" aria-live="polite"></div>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+
+    <nav class="tabs" id="tabs" aria-label="Main" hidden>
+      <button type="button" class="tab" data-go="s-carry" aria-current="page">
+        <svg viewBox="0 0 24 24"><path d="M3 7.5a1.5 1.5 0 0 1 1.5-1.5h15A1.5 1.5 0 0 1 21 7.5v2.2a2.3 2.3 0 0 0 0 4.6v2.2a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 16.5v-2.2a2.3 2.3 0 0 0 0-4.6z"/><path d="M8 10h5M8 14h3"/></svg>
+        Carry<span class="badge" id="carry-badge" hidden></span>
+      </button>
+      <button type="button" class="tab" data-go="s-around">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2"/></svg>
+        Around<span class="badge" id="around-badge" hidden></span>
+      </button>
+      <button type="button" class="tab" data-go="s-you">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/></svg>
+        You
+      </button>
+    </nav>
+
+    <div class="scrim" id="scrim"></div>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div class="grab" aria-hidden="true"></div>
+      <div class="sheet-body" id="sheet-body"></div>
+    </div>
+    <div class="system" id="system" role="dialog" aria-modal="true" aria-labelledby="system-text">
+      <svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="13" cy="13" r="2.2"/><path d="M8.5 8.5a6.4 6.4 0 0 0 0 9M17.5 8.5a6.4 6.4 0 0 1 0 9M5 5a11.3 11.3 0 0 0 0 16M21 5a11.3 11.3 0 0 1 0 16"/></svg>
+      <p id="system-text">Allow <b>Carrier</b> to find, connect to, and determine the relative position of nearby devices?</p>
+      <button type="button" data-sys="allow">Allow</button>
+      <button type="button" data-sys="deny">Don&rsquo;t allow</button>
     </div>
   </div>
 
-  <!-- ── home ── -->
-  <div class="screen" id="s-home">
-    <div class="bar">
-      <div>
-        <div class="title">Carrier</div>
-        <div class="sub" id="home-sub">Looking around you</div>
-      </div>
-      <span class="chip solid" id="rank"><span class="led"></span><span id="rank-name">Dormant</span></span>
-    </div>
-    <div class="body">
-      <div id="purse"></div>
-      <div class="section" id="near-head">Nobody nearby</div>
-      <div class="queue" id="queue"></div>
-      <p class="sub" id="nobody" style="padding: 8px 4px 0">Carrier needs another person in the room. Wait a moment, or go find them.</p>
-      <div class="section">Just happened</div>
-      <div id="peek"></div>
-    </div>
-    <div class="dock">
-      <button class="act" id="primary" disabled>Nobody nearby</button>
-    </div>
-  </div>
-
-  <!-- ── activity ── -->
-  <div class="screen" id="s-feed">
-    <div class="bar">
-      <div>
-        <div class="title">Around you</div>
-        <div class="sub">What the mesh has been doing</div>
-      </div>
-    </div>
-    <div class="body" id="feed"></div>
-    <div class="dock"></div>
-  </div>
-
-  <!-- ── you ── -->
-  <div class="screen" id="s-you">
-    <div class="bar">
-      <div>
-        <div class="title">You</div>
-        <div class="sub" id="you-key">Loading</div>
-      </div>
-    </div>
-    <div class="body" id="you-body"></div>
-    <div class="dock"></div>
-  </div>
-
-  <div class="tabs glass" id="tabs" style="display:none">
-    <button class="tab on" data-tab="s-home">Carry</button>
-    <button class="tab" data-tab="s-feed">Around</button>
-    <button class="tab" data-tab="s-you">You</button>
-  </div>
-
-  <div class="scrim" id="scrim"></div>
-  <div class="sheet glass" id="sheet">
-    <div class="grab"></div>
-    <div id="sheet-body"></div>
-  </div>
-
-  <div class="toast glass" id="toast"></div>
+  <div aria-hidden="true"></div>
+  <div class="notes" id="notes" aria-hidden="true"></div>
 </div>
+
+<template id="legal-terms">
+  <div class="legal">
+    <h3 id="sheet-title">Terms of use</h3>
+    <p class="date">Last updated 23 September 2026</p>
+    <h4>What Carrier is</h4>
+    <p>Carrier is experimental software for passing signed payments between phones over local radio and settling them on the Solana blockchain. This build runs on devnet. Tokens on devnet have no monetary value and cannot be exchanged for money.</p>
+    <h4>Your key</h4>
+    <p>Your key is created on your phone and stored in its secure hardware. We never receive a copy and cannot recover it. If you lose the phone or reset the app, anything the key controls is gone.</p>
+    <h4>Carrying payments</h4>
+    <p>When you accept a payment from someone, your phone holds it until you hand it on or until your phone settles it. Carriers receive a share of the payment when it settles. A payment that never settles pays nobody, including you.</p>
+    <h4>Your offline allowance</h4>
+    <p>The allowance you choose is locked on Solana as a deposit. It limits how much you can have out in unsettled payments at once. If you sign two payments against the same slot, the protocol takes the amount from your deposit and pays it to the person who could not settle.</p>
+    <h4>No warranty</h4>
+    <p>Carrier is provided as it is, without warranty of any kind. The radio layer has not been tested across all Android devices. Do not use this build to move anything you cannot afford to lose.</p>
+    <h4>Changes</h4>
+    <p>If these terms change, the app will show the new version before you can carry again.</p>
+    <div class="dock"><button type="button" class="btn quiet" data-close>Close</button></div>
+  </div>
+</template>
+
+<template id="legal-privacy">
+  <div class="legal">
+    <h3 id="sheet-title">Privacy policy</h3>
+    <p class="date">Last updated 23 September 2026</p>
+    <h4>What stays on your phone</h4>
+    <p>Your key, the payments you are carrying, and the list of people you have met. None of it is sent to us. We do not run a server that could receive it.</p>
+    <h4>What other phones see</h4>
+    <p>Phones within radio range see an anonymous identifier while Carrier is open. When you hand a payment over, the other phone learns your public key.</p>
+    <h4>What becomes public</h4>
+    <p>When a payment settles, the following is written to Solana, which anyone can read and nobody can delete:</p>
+    <ul>
+      <li>the public key of each person who carried it</li>
+      <li>the time of each handoff, to the second</li>
+      <li>the amount, the sender and the recipient</li>
+    </ul>
+    <p>Public keys are not names. But if someone knows your key and sees a handoff time, they can infer that you were near another carrier at that moment.</p>
+    <h4>Location</h4>
+    <p>Android requires location permission before an app can scan for nearby devices. Carrier asks for it for that reason alone and never reads your location.</p>
+    <h4>What we do not collect</h4>
+    <p>No name, email, phone number, contacts, location, advertising identifier or analytics.</p>
+    <div class="dock"><button type="button" class="btn quiet" data-close>Close</button></div>
+  </div>
+</template>
 
 <script>
 (() => {
   "use strict";
 
-  const NAMES = ["Ama","Chidi","Zanele","Tunde","Ngozi","Kwame","Lerato","Emeka",
-                 "Sofia","Mateo","Valentina","Thiago","Ayesha","Rohan","Mei","Deniz"];
-  const HUES = ["#FF6B5A","#8A7BFF","#3DDC97","#FFC845","#4FC3F7","#FF8FCF","#5AD1B0","#FFA06B"];
-  const RANKS = [
-    { at: 0, name: "Dormant" }, { at: 1, name: "Exposed" },
-    { at: 3, name: "Carrier" }, { at: 6, name: "Vector" },
-    { at: 10, name: "Superspreader" },
-  ];
-
   const $ = (id) => document.getElementById(id);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const rand = (a, b) => a + Math.random() * (b - a);
   const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];
-  const cash = () => Math.round(rand(140, 9400)) / 100;
-  const hueFor = (n) => {
-    let h = 0;
-    for (let i = 0; i < n.length; i += 1) h = (h * 31 + n.charCodeAt(i)) >>> 0;
-    return HUES[h % HUES.length];
-  };
-  const ago = (ms) => {
-    const m = Math.floor(ms / 60000);
-    return m < 1 ? "now" : m < 60 ? m + "m" : Math.floor(m / 60) + "h";
-  };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const money = (n) => n.toFixed(2);
+  const hhmm = (t) => { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+  const ago = (ms) => { const m = Math.floor(ms / 60000); return m < 1 ? "now" : m < 60 ? m + "m" : Math.floor(m / 60) + "h"; };
+  const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i += 1) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h; };
+
+  const NAMES = ["Ama", "Chidi", "Zanele", "Tunde", "Ngozi", "Kwame", "Lerato", "Emeka",
+                 "Sofia", "Mateo", "Valentina", "Thiago", "Ayesha", "Rohan", "Mei", "Deniz",
+                 "Farah", "Kofi", "Imani", "Yusuf"];
+  const RANKS = [
+    { at: 0, name: "Dormant" }, { at: 1, name: "Exposed" }, { at: 3, name: "Carrier" },
+    { at: 6, name: "Vector" }, { at: 10, name: "Superspreader" },
+  ];
+  // Carriers split a relay fee when a note settles, floored so a small note
+  // still pays something worth seeing.
+  const shareOf = (amount) => Math.max(0.01, Math.round(amount * 0.0015 * 100) / 100);
+
+  /* ── persistence: only what a real phone would keep ─────────────────── */
+  const KEY = "carrier.pocket.v3";
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; } })();
+  const persist = () => { try { localStorage.setItem(KEY, JSON.stringify({ key: S.key, allowance: S.allowance, perm: S.perm, coach: S.coach })); } catch {} };
+  const forget = () => { try { localStorage.removeItem(KEY); } catch {} };
 
   let uid = 1;
   const S = {
-    folks: [], pocket: [], met: new Set(), passed: 0, sel: null,
-    feed: [], slide: 0, landed: false, key: "",
+    step: 0, perm: "unset", key: "", allowance: 25, signed: false, creating: false,
+    folks: [], pocket: [], cursor: 0, sel: null, met: new Map(), passed: 0, earned: 0,
+    feed: [], filter: "all", tab: "s-carry", landed: false, coach: 0, dragging: false,
+    feedReady: false, started: 0,
   };
 
-  // A fake but plausible device key, so "You" has something real to show.
+  /* ── theme ──────────────────────────────────────────────────────────── */
+  const setTheme = (t) => {
+    if (t === "system") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", t);
+    $$("[data-theme-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === t)));
+    try { localStorage.setItem("carrier.theme", t); } catch {}
+  };
+  try { const t = localStorage.getItem("carrier.theme"); if (t) setTheme(t); } catch {}
+  $$("[data-theme-set]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.themeSet)));
+
+  const tickClock = () => { $("clock").textContent = hhmm(Date.now()); };
+  tickClock(); setInterval(tickClock, 15000);
+  const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const today = new Date();
+  $("sign-date").textContent = String(today.getDate()).padStart(2, "0") + " " + MON[today.getMonth()] + " " + today.getFullYear();
+
+  /* ── objects ────────────────────────────────────────────────────────── */
   const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  S.key = Array.from({ length: 44 }, () => pick(B58.split(""))).join("");
+  const makeKey = () => Array.from({ length: 44 }, () => pick(B58)).join("");
+  function ident(k) {
+    let h = 2166136261; const bits = [];
+    for (let i = 0; i < 28; i += 1) { h ^= k.charCodeAt(i % k.length) + i; h = Math.imul(h, 16777619) >>> 0; bits.push((h >>> 7) & 1); }
+    let cells = "";
+    for (let y = 0; y < 7; y += 1) for (let x = 0; x < 7; x += 1) cells += '<i class="' + (bits[y * 4 + (x < 4 ? x : 6 - x)] ? "on" : "") + '"></i>';
+    return '<div class="ident" aria-hidden="true">' + cells + "</div>";
+  }
+  const grouped = (k) => k.match(/.{1,4}/g).map((g) => "<span>" + g + "</span>").join("");
 
-  function newFolk() {
-    const taken = new Set(S.folks.map((f) => f.name));
-    const free = NAMES.filter((n) => !taken.has(n));
-    return {
-      id: uid++, name: pick(free.length ? free : NAMES),
-      holding: Math.random() < 0.55,
-      goesAt: Date.now() + rand(16000, 34000),
-    };
+  function keyTag(state) {
+    const string = '<svg class="string" viewBox="0 0 60 70" aria-hidden="true"><path d="M2 2 C 8 30, 14 40, 38 62"/></svg>';
+    if (state === "none") return '<div class="ktag blank"><p class="where" style="margin:0">no key on this phone yet</p></div>';
+    if (state === "making") return string + '<div class="ktag" aria-label="Creating key"><div class="kh">THIS PHONE&rsquo;S KEY</div><div class="krow"><span class="sk" style="width:52px;height:52px"></span><div><span class="sk" style="height:10px;margin:4px 0;width:92%"></span><span class="sk" style="height:10px;margin:4px 0;width:76%"></span><span class="sk" style="height:10px;margin:4px 0;width:40%"></span></div></div></div>';
+    return string + '<div class="ktag"><div class="kh">THIS PHONE&rsquo;S KEY</div><div class="krow">' + ident(S.key) + '<div class="keytext">' + grouped(S.key) + '</div></div><div class="where">kept in this phone&rsquo;s secure chip</div></div>';
   }
 
-  function newNote(from) {
-    const hops = Math.floor(rand(0, 3));
-    const route = Array.from({ length: hops }, () => pick(NAMES));
-    if (from) route.push(from);
-    return { id: uid++, amount: cash(), to: pick(NAMES), route };
+  // A stamp for each person a note passed through. Rotation comes from the
+  // name, so the same stamp always lands at the same angle.
+  function stamp(h, i, thump) {
+    const rot = (hash(h.name + i) % 26) - 13;
+    return '<span class="stamp' + (thump ? " thump" : "") + '" style="--rot:' + rot + 'deg"><b>' + esc(h.name) + "</b><i>" + hhmm(h.at) + "</i><s>" + (i === 0 ? "sent" : "hop " + i) + "</s></span>";
   }
 
-  function log(html, mine) {
-    S.feed.unshift({ html, mine: !!mine, at: Date.now(), fresh: true });
-    if (S.feed.length > 40) S.feed.pop();
-  }
-
-  function chatter() {
-    const a = pick(NAMES);
-    let b = pick(NAMES);
-    while (b === a) b = pick(NAMES);
-    const v = cash().toFixed(2);
-    return pick([
-      "<b>" + a + "</b> passed <i>" + v + "</i> to <b>" + b + "</b>",
-      "<i>" + v + "</i> settled after " + Math.floor(rand(2, 6)) + " hands",
-      "<b>" + a + "</b> caught one from <b>" + b + "</b>",
-      "<i>" + v + "</i> crossed town with no signal",
-      "<b>" + a + "</b> reached " + Math.floor(rand(2, 9)) + " people this week",
-    ]);
-  }
-
-  function toast(text) {
+  /* ── toast, settle, sheet ───────────────────────────────────────────── */
+  function toast(html) {
     const el = $("toast");
-    el.textContent = text;
-    el.classList.add("up");
+    el.innerHTML = "<span>" + html + "</span>";
+    requestAnimationFrame(() => el.classList.add("up"));
     clearTimeout(toast.t);
-    toast.t = setTimeout(() => el.classList.remove("up"), 1900);
+    toast.t = setTimeout(() => el.classList.remove("up"), 2400);
   }
 
-  // ── onboarding ──────────────────────────────────────────────────────
-  $("intro-next").addEventListener("click", () => {
-    if (S.slide < 2) {
-      S.slide += 1;
-      document.querySelectorAll(".slide").forEach((el, i) =>
-        el.classList.toggle("on", i === S.slide));
-      document.querySelectorAll(".pip").forEach((el, i) =>
-        el.classList.toggle("on", i === S.slide));
-      $("intro-next").textContent = S.slide === 2 ? "Start carrying" : "Continue";
-      return;
-    }
-    S.landed = true;
-    $("intro").classList.add("gone");
-    $("tabs").style.display = "grid";
-    show("s-home");
-    draw();
-  });
-
-  // ── navigation ──────────────────────────────────────────────────────
-  function show(id) {
-    document.querySelectorAll(".screen").forEach((el) =>
-      el.classList.toggle("on", el.id === id));
-    document.querySelectorAll(".tab").forEach((el) =>
-      el.classList.toggle("on", el.dataset.tab === id));
-    if (id === "s-feed") drawFeed();
-    if (id === "s-you") drawYou();
+  function settleMoment(n, share, hands) {
+    const el = $("settle");
+    el.innerHTML =
+      '<div class="what"><b class="mono">' + money(n.amount) + "</b> reached <b>" + esc(n.to) + "</b> after " + hands + " hands</div>" +
+      '<span class="settled-stamp" aria-hidden="true">SETTLED</span>' +
+      '<div class="earn">you earned ' + money(share) + "</div>";
+    el.classList.add("up");
+    setTimeout(() => { const s = el.querySelector(".settled-stamp"); if (s) s.classList.add("slam"); }, calm ? 0 : 280);
+    clearTimeout(settleMoment.t);
+    settleMoment.t = setTimeout(() => el.classList.remove("up"), 4600);
   }
-  document.querySelectorAll(".tab").forEach((t) =>
-    t.addEventListener("click", () => show(t.dataset.tab)));
+  $("settle").addEventListener("click", () => $("settle").classList.remove("up"));
 
-  // ── sheet ───────────────────────────────────────────────────────────
-  function closeSheet() {
-    $("sheet").classList.remove("up");
-    $("scrim").classList.remove("on");
-  }
-  $("scrim").addEventListener("click", closeSheet);
-
-  function openPass(f) {
-    const note = S.pocket[0];
-    $("sheet-body").innerHTML =
-      "<h3>Pass to " + f.name + "?</h3>" +
-      '<p class="note">They carry it until they meet someone closer to ' +
-      note.to + ". You are paid a share when it settles.</p>" +
-      '<div class="dock" style="padding:0">' +
-      '<button class="act go" id="confirm">Hand over ' + note.amount.toFixed(2) + "</button>" +
-      '<button class="act ghost" id="cancel">Not now</button></div>';
+  let sheetReturn = null;
+  function openSheet(html, tall) {
+    sheetReturn = document.activeElement;
+    $("sheet-body").innerHTML = html;
+    $("sheet").classList.toggle("tall", !!tall);
     $("sheet").classList.add("up");
     $("scrim").classList.add("on");
-    $("cancel").addEventListener("click", closeSheet);
-    $("confirm").addEventListener("click", () => { closeSheet(); commitPass(f); });
+    $("sheet-body").scrollTop = 0;
+    $$("[data-close]", $("sheet")).forEach((b) => b.addEventListener("click", closeSheet));
+    const first = $("sheet").querySelector("button");
+    if (first) setTimeout(() => first.focus({ preventScroll: true }), 60);
+  }
+  function closeSheet() {
+    if (!$("sheet").classList.contains("up")) return;
+    $("sheet").classList.remove("up");
+    $("scrim").classList.remove("on");
+    if (sheetReturn && sheetReturn.focus) sheetReturn.focus({ preventScroll: true });
+  }
+  $("scrim").addEventListener("click", closeSheet);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+  const openLegal = (which) => openSheet($("legal-" + which).innerHTML, true);
+  $$("[data-legal]").forEach((b) => b.addEventListener("click", () => openLegal(b.dataset.legal)));
+
+  /* ── first run ──────────────────────────────────────────────────────── */
+  const steps = $$(".ob-step");
+
+  function goStep(n) {
+    const prev = S.step;
+    S.step = n;
+    steps.forEach((el, i) => { el.classList.toggle("on", i === n); el.classList.toggle("left", i < n); });
+    $$(".progress i").forEach((el, i) => el.classList.toggle("done", i <= n));
+    $("ob-count").textContent = (n + 1) + " of 4";
+    $("ob-back").hidden = n === 0;
+    if (n === 0) demo.start(); else demo.stop();
+    drawObDock();
+    if (prev !== n) {
+      const h = steps[n].querySelector("h2");
+      if (h) { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); }
+    }
+    notes.place();
   }
 
-  function commitPass(f) {
-    const amt = S.pocket[0].amount.toFixed(2);
-    S.pocket.shift();
-    S.passed += 1;
-    S.met.add(f.id);
-    f.holding = true;
-    f.goesAt = Date.now() + rand(3000, 6000);
+  function drawObDock() {
+    const next = $("ob-next"), alt = $("ob-alt"), foot = $("ob-foot");
+    next.disabled = false; next.classList.remove("busy");
+    alt.hidden = true; foot.hidden = true;
+    if (S.step === 0) { next.textContent = "Set up this phone"; foot.hidden = false; foot.textContent = "About a minute. No sign-up."; }
+    else if (S.step === 1) {
+      if (S.perm === "unset") { next.textContent = "Allow nearby access"; alt.hidden = false; alt.textContent = "Not now"; }
+      else next.textContent = "Continue";
+    } else if (S.step === 2) {
+      next.textContent = S.key ? "Continue" : "Make my key";
+      if (S.creating) { next.classList.add("busy"); next.disabled = true; }
+    } else if (S.step === 3) {
+      next.textContent = "Start carrying";
+      next.disabled = !S.signed;
+      foot.hidden = S.signed; foot.textContent = "Sign the receipt above to continue.";
+    }
+  }
+
+  function drawPerm() {
+    const txt = S.perm === "granted" ? "Allowed" : S.perm === "denied" ? "Off" : "Not asked";
+    const cls = S.perm === "granted" ? "state yes" : S.perm === "denied" ? "state no" : "state";
+    $$("[data-perm-state]").forEach((s) => { s.textContent = txt; s.className = cls; });
+    const after = $("perm-after");
+    after.hidden = S.perm === "unset";
+    after.textContent = S.perm === "granted"
+      ? "Carrier only uses the radio while it is open."
+      : "You can still set up. Carrier cannot see anyone until this is on, and you can turn it on from the Carry tab.";
+  }
+
+  const drawKeybox = () => { $("keybox").innerHTML = keyTag(S.creating ? "making" : S.key ? "made" : "none"); };
+
+  function drawSign() {
+    $("sign").classList.toggle("done", S.signed);
+    $("sign-btn").setAttribute("aria-pressed", String(S.signed));
+    $("sign-btn").textContent = S.signed ? "Signed. Tap to undo" : "Sign to agree";
+  }
+  $("sign-btn").addEventListener("click", () => { S.signed = !S.signed; drawSign(); drawObDock(); });
+
+  const system = {
+    open() { $("scrim").classList.add("on"); $("system").classList.add("on"); setTimeout(() => $("system").querySelector("button").focus({ preventScroll: true }), 60); },
+    close() { $("system").classList.remove("on"); $("scrim").classList.remove("on"); },
+  };
+  $$("[data-sys]").forEach((b) => b.addEventListener("click", () => {
+    S.perm = b.dataset.sys === "allow" ? "granted" : "denied";
+    system.close(); drawPerm(); persist();
+    if (!S.landed) { drawObDock(); $("ob-next").focus({ preventScroll: true }); return; }
+    if (S.perm === "granted" && !S.folks.length) scanIn();
+    draw();
+  }));
+
+  $("ob-next").addEventListener("click", () => {
+    if (S.step === 0) return goStep(1);
+    if (S.step === 1) return S.perm === "unset" ? system.open() : goStep(2);
+    if (S.step === 2) {
+      if (S.key) return goStep(3);
+      S.creating = true; drawKeybox(); drawObDock();
+      setTimeout(() => { S.creating = false; S.key = makeKey(); persist(); drawKeybox(); drawObDock(); }, calm ? 300 : 1100);
+      return;
+    }
+    if (S.step === 3 && S.signed) land();
+  });
+  $("ob-alt").addEventListener("click", () => { if (S.step === 1) { S.perm = "denied"; drawPerm(); persist(); goStep(2); } });
+  $("ob-back").addEventListener("click", () => { if (S.step > 0) goStep(S.step - 1); });
+  $$("#allowance button").forEach((b) => b.addEventListener("click", () => {
+    S.allowance = Number(b.dataset.v);
+    $$("#allowance button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    persist();
+  }));
+
+  /* The demo is the product, played out: stamps land as the slip changes
+     hands, and SETTLED lands when someone finds signal. */
+  const demo = (() => {
+    const el = $("demo"), cap = $("demo-cap"), row = $("demo-stamps"), done = $("demo-settled"), people = $$(".walk li", el);
+    const base = Date.now() - 42 * 60000;
+    const HOPS = [{ name: "Ama", at: base }, { name: "Chidi", at: base + 9 * 60000 }, { name: "Mei", at: base + 23 * 60000 }, { name: "Tunde", at: base + 41 * 60000 }];
+    const LINES = [
+      "Ama signs 12.00 for Zanele. Nobody here has signal.",
+      "Chidi is heading that way. Both phones sign, and the slip gets his stamp.",
+      "Mei takes it onto the bus. Another stamp.",
+      "Tunde gets signal. The whole chain settles on Solana at once.",
+      "Zanele is paid 12.00. Chidi, Mei and Tunde each get a share.",
+    ];
+    let t = null, at = 0;
+    function paint(fresh) {
+      const shown = Math.min(at, 3) + 1;
+      row.innerHTML = HOPS.slice(0, shown).map((h, i) => stamp(h, i, fresh && i === shown - 1 && at < 4)).join("");
+      people.forEach((p, i) => { p.classList.toggle("hit", i < at || (at >= 4 && i === 4)); p.classList.toggle("holding", i === at && at < 4); });
+      el.classList.toggle("signal", at >= 3);
+      done.hidden = at < 3;
+      if (at === 3 && fresh) { done.classList.remove("slam"); void done.offsetWidth; done.classList.add("slam"); }
+      cap.innerHTML = '<span class="n">' + (at + 1) + "/5</span>" + LINES[at];
+    }
+    function tick() { at = at >= 4 ? 0 : at + 1; paint(true); t = setTimeout(tick, at === 4 ? 3600 : at === 0 ? 1500 : 1900); }
+    return {
+      start() { clearTimeout(t); if (calm) { at = 4; paint(false); return; } at = 0; paint(true); t = setTimeout(tick, 1500); },
+      stop() { clearTimeout(t); },
+    };
+  })();
+
+  function land() {
+    S.landed = true;
+    S.started = Date.now();
+    demo.stop();
+    $("intro").hidden = true;
+    $("tabs").hidden = false;
+    if (S.coach === 0) S.coach = 1;
+    persist();
+    seedWorld();
+    show("s-carry");
+  }
+
+  /* ── the simulated world ────────────────────────────────────────────── */
+  function newNote(holder) {
+    const pool = NAMES.filter((n) => n !== holder);
+    const hops = Math.floor(rand(1, 4));
+    const names = [];
+    while (names.length < hops) { const n = pick(pool); if (!names.includes(n)) names.push(n); }
+    if (holder) names.push(holder);
+    let to = pick(pool);
+    while (names.includes(to)) to = pick(pool);
+    let t = Date.now() - rand(40, 160) * 60000;
+    const route = names.map((name) => { t += rand(4, 25) * 60000; return { name, at: Math.min(t, Date.now() - 60000) }; });
+    return { id: uid++, amount: Math.round(rand(140, 4800)) / 100, to, route };
+  }
+
+  function newFolk(opts = {}) {
+    const taken = new Set(S.folks.map((f) => f.name));
+    const n0 = S.pocket[0];
+    const want = n0 && Math.random() < 0.2 && !taken.has(n0.to) ? n0.to : null;
+    const free = NAMES.filter((n) => !taken.has(n));
+    const name = want || pick(free.length ? free : NAMES);
+    const holding = opts.holding ?? Math.random() < 0.45;
+    return { id: uid++, name, dist: rand(1.5, 11), holding: holding ? newNote(name) : null, goesAt: Date.now() + rand(26000, 52000), fresh: true };
+  }
+
+  function log(html, who, mine, at) {
+    S.feed.unshift({ html, who, mine: !!mine, at: at || Date.now(), fresh: !at });
+    S.feed.sort((a, b) => b.at - a.at);
+    if (S.feed.length > 60) S.feed.pop();
+    if (!at && !mine && S.tab !== "s-around") $("around-badge").hidden = false;
+  }
+
+  const PAID = '<span class="paid">PAID</span>';
+  function chatter(at) {
+    const a = pick(NAMES); let b = pick(NAMES); while (b === a) b = pick(NAMES);
+    const v = '<span class="v">' + money(Math.round(rand(140, 6400)) / 100) + "</span>";
+    const n = Math.floor(rand(2, 6));
+    const kind = pick([0, 0, 1, 1, 2, 3]);
+    if (kind === 0) log("<b>" + a + "</b> handed " + v + " to <b>" + b + "</b>", a, false, at);
+    else if (kind === 1) log(PAID + v + " reached <b>" + b + "</b> after " + n + " hands", b, false, at);
+    else if (kind === 2) log("<b>" + a + "</b> took a payment from <b>" + b + "</b>", a, false, at);
+    else log("<b>" + a + "</b> has met " + (n + 2) + " people today", a, false, at);
+  }
+
+  function seedWorld() {
+    Object.assign(S, { folks: [], pocket: [], feed: [], sel: null, met: new Map(), passed: 0, earned: 0, cursor: 0 });
+    lastRank = 0;
+    let back = 0;
+    for (let i = 0; i < 12; i += 1) { back += rand(90000, 700000); chatter(Date.now() - back); }
+    if (S.perm === "granted") scanIn();
+  }
+
+  // The radio takes a moment. People arrive one at a time, and the first
+  // always has something to take, so the first run has somewhere to go.
+  let scanTimers = [];
+  function scanIn() {
+    scanTimers.forEach(clearTimeout);
+    scanTimers = [
+      setTimeout(() => { S.folks.push(newFolk({ holding: true })); draw(); }, calm ? 200 : 1500),
+      setTimeout(() => { S.folks.push(newFolk({ holding: false })); draw(); }, calm ? 400 : 2600),
+      setTimeout(() => { S.folks.push(newFolk()); draw(); }, calm ? 600 : 4200),
+    ];
+  }
+
+  /* ── handoffs ───────────────────────────────────────────────────────── */
+  const current = () => S.pocket[Math.min(S.cursor, S.pocket.length - 1)] || null;
+  const folkBy = (id) => S.folks.find((f) => f.id === id);
+  function meet(f) { const fresh = !S.met.has(f.name); S.met.set(f.name, Date.now()); return fresh; }
+
+  let lastRank = 0, fresher = false;
+  function rankCheck() {
+    const i = RANKS.indexOf(rankNow());
+    if (i > lastRank) { lastRank = i; setTimeout(() => toast("You are now <b>" + RANKS[i].name + "</b>"), 2600); }
+  }
+
+  function take(f) {
+    const n = f.holding;
+    f.holding = null;
+    const fresh = meet(f);
+    n.route[n.route.length - 1].at = Date.now();
+    S.pocket.unshift(n); S.cursor = 0; S.sel = null;
+    f.goesAt = Math.min(f.goesAt, Date.now() + rand(9000, 16000));
+    log('You took <span class="v">' + money(n.amount) + "</span> from <b>" + f.name + "</b>", "You", true);
+    toast('You are carrying <span class="v">' + money(n.amount) + "</span> for " + esc(n.to));
+    if (S.coach === 1) S.coach = 2;
+    if (fresh) rankCheck();
+    fresher = true;
+    persist(); draw();
+  }
+
+  function hello(f) {
+    const fresh = meet(f);
     S.sel = null;
-    toast(f.name + " is carrying it now");
-    log("You passed <i>" + amt + "</i> to <b>" + f.name + "</b>", true);
+    if (fresh) { log("You met <b>" + f.name + "</b>", "You", true); toast("You met " + esc(f.name) + ". They count toward your rank."); rankCheck(); }
+    else toast("You have already met " + esc(f.name));
     draw();
   }
 
-  // ── drawing ─────────────────────────────────────────────────────────
-  function drawPurse() {
-    const note = S.pocket[0];
-    const box = $("purse");
-    if (!note) {
-      box.className = "hollow solid";
-      box.innerHTML =
-        "<h3>Your hands are empty</h3>" +
-        "<p>Anyone with a gold ring is holding something. Take it, and it travels with you.</p>";
-      return;
-    }
-    const steps = note.route.map((n) => '<span class="step">' + n + "</span>");
-    steps.push('<span class="step you">You</span>');
-    steps.push('<span class="step end">' + note.to + "</span>");
-    box.className = "purse solid";
-    box.innerHTML =
-      '<div class="lab">In your pocket</div>' +
-      '<div class="fig">' + note.amount.toFixed(2) + "<small>USDC</small></div>" +
-      '<div class="path">' + steps.join('<span class="arrow">&rsaquo;</span>') + "</div>" +
-      '<div class="hint">Drag this onto someone, or use the button</div>';
-    arm(box);
+  function confirmPass(f) {
+    const n = current();
+    if (!n) return;
+    const delivering = f.name === n.to;
+    const share = shareOf(n.amount);
+    openSheet(
+      '<h3 id="sheet-title">' + (delivering ? "Deliver to " : "Hand to ") + esc(f.name) + "?</h3>" +
+      '<p class="lede">' + (delivering
+        ? esc(f.name) + " is who this is for. It settles the next time either of your phones finds signal."
+        : esc(f.name) + " carries it on toward " + esc(n.to) + ". Both phones sign, your stamp goes on the slip, and it cannot be taken back.") + "</p>" +
+      '<div class="receipt"><dl>' +
+      "<div><dt>Amount</dt><dd>" + money(n.amount) + " USDC</dd></div>" +
+      "<div><dt>Stamps on it</dt><dd>" + (n.route.length + 1) + "</dd></div>" +
+      '<div><dt>Your share</dt><dd class="earned">' + money(share) + "</dd></div>" +
+      "</dl></div>" +
+      '<div class="dock"><button type="button" class="btn" id="confirm">' + (delivering ? "Deliver " : "Hand over ") + '<span class="amt">' + money(n.amount) + "</span></button>" +
+      '<button type="button" class="btn quiet" data-close>Keep it</button></div>'
+    );
+    $("confirm").addEventListener("click", () => { closeSheet(); commitPass(f, n); });
   }
 
-  /**
-   * Drag the money onto a person.
-   *
-   * Tapping a name and then a button is how a form works. Handing something to
-   * someone is a physical act, so the primary gesture is physical too: pick the
-   * money up, carry it to a face, let go. The button stays for anyone who would
-   * rather not drag, and for reachability.
-   */
+  function commitPass(f, n) {
+    if (!S.folks.includes(f)) { toast(esc(f.name) + " walked out of range"); return; }
+    const i = S.pocket.indexOf(n);
+    if (i < 0) return;
+    S.pocket.splice(i, 1);
+    S.cursor = 0; S.passed += 1; S.sel = null;
+    const fresh = meet(f);
+    const delivering = f.name === n.to;
+    const share = shareOf(n.amount);
+    f.goesAt = Math.min(f.goesAt, Date.now() + rand(8000, 14000));
+    log("You " + (delivering ? "delivered " : "handed ") + '<span class="v">' + money(n.amount) + "</span> to <b>" + f.name + "</b>", "You", true);
+    toast(esc(f.name) + (delivering ? " has it. It settles when either of you finds signal." : " is carrying it now"));
+    if (S.coach === 2) S.coach = 3;
+    if (fresh) rankCheck();
+
+    // Somebody further down the chain reconnects eventually. Close the loop
+    // so the first run ends where the idea does: you were paid for carrying.
+    const hands = n.route.length + 2 + (delivering ? 0 : Math.floor(rand(1, 3)));
+    setTimeout(() => {
+      S.earned += share;
+      log(PAID + '<span class="v">' + money(n.amount) + "</span> reached <b>" + n.to + "</b> after " + hands + ' hands. You earned <span class="v">' + money(share) + "</span>", "You", true);
+      settleMoment(n, share, hands);
+      if (S.coach === 3) S.coach = 4;
+      persist(); draw();
+      if (S.tab === "s-you") drawYou();
+      if (S.tab === "s-around") drawFeed();
+    }, delivering ? rand(5000, 8000) : rand(11000, 17000));
+    persist(); draw();
+  }
+
+  /* ── drag the slip onto a person ────────────────────────────────────── */
+  /* Handing money to someone is physical, so the main gesture is too: pick
+     the slip up, carry it to a face, let go. The button does the same thing
+     for anyone who would rather not drag. */
   function arm(card) {
-    let dragging = false, ox = 0, oy = 0, over = null;
-
+    let down = false, lifted = false, ox = 0, oy = 0, over = null;
     card.addEventListener("pointerdown", (e) => {
-      if (!S.pocket.length) return;
-      dragging = true;
-      ox = e.clientX; oy = e.clientY;
-      card.setPointerCapture(e.pointerId);
-      card.classList.add("lifted");
+      if (e.target.closest("button")) return;
+      down = true; lifted = false; ox = e.clientX; oy = e.clientY;
+      try { card.setPointerCapture(e.pointerId); } catch {}
     });
-
     card.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
+      if (!down) return;
       const dx = e.clientX - ox, dy = e.clientY - oy;
-      card.style.transform = "translate(" + dx + "px, " + dy + "px) scale(0.96) rotate(" +
-        (dx * 0.02).toFixed(2) + "deg)";
-
-      const under = document.elementFromPoint(e.clientX, e.clientY);
-      const soul = under && under.closest ? under.closest(".soul") : null;
-      if (soul !== over) {
-        if (over) over.classList.remove("target");
-        over = soul;
-        if (over) over.classList.add("target");
-      }
+      if (!lifted && Math.hypot(dx, dy) < 6) return;
+      if (!lifted) { lifted = true; S.dragging = true; card.classList.add("lifted"); }
+      card.style.transform = "translate(" + dx + "px," + dy + "px) scale(0.92) rotate(" + (dx * 0.03 - 3).toFixed(2) + "deg)";
+      // The slip is under the finger, so look through it to what is below.
+      const hit = document.elementsFromPoint(e.clientX, e.clientY).find((el) => el.closest && el.closest(".person[data-id]"));
+      const p = hit ? hit.closest(".person[data-id]") : null;
+      if (p !== over) { if (over) over.classList.remove("target"); over = p; if (over) over.classList.add("target"); }
     });
-
-    const drop = (e) => {
-      if (!dragging) return;
-      dragging = false;
+    const drop = () => {
+      if (!down) return;
+      down = false;
+      if (!lifted) return;
+      S.dragging = false;
       card.classList.remove("lifted");
       card.style.transform = "";
       if (over) over.classList.remove("target");
-      const landed = over;
-      over = null;
+      const landed = over; over = null;
       if (!landed) return;
-      const f = S.folks.find((x) => String(x.id) === landed.dataset.id);
-      if (f) { S.sel = f.id; openPass(f); }
+      const f = folkBy(Number(landed.dataset.id));
+      if (f) { S.sel = f.id; drawPeople(); drawPrimary(); confirmPass(f); }
     };
     card.addEventListener("pointerup", drop);
     card.addEventListener("pointercancel", drop);
   }
 
-  function drawQueue() {
-    const q = $("queue");
-    const any = S.folks.length > 0;
-    $("nobody").style.display = any ? "none" : "block";
-    $("near-head").textContent = any
-      ? (S.folks.length === 1 ? "1 person nearby" : S.folks.length + " people nearby")
-      : "Nobody nearby";
-    $("home-sub").textContent = any ? "Someone is close enough" : "Looking around you";
+  /* ── drawing ────────────────────────────────────────────────────────── */
+  function drawCoach() {
+    const box = $("coach");
+    const msgs = {
+      1: "Anyone below with a little amber slip is holding a payment. Tap them and take it. You carry it until you meet someone going its way.",
+      2: "Now pass it on. Drag the slip out of your pocket onto anyone near you, or tap them and use the button.",
+      3: "Your share arrives when anyone further down the chain finds signal. You will see it land.",
+    };
+    const m = msgs[S.coach];
+    if (!m || S.perm !== "granted") { box.innerHTML = ""; return; }
+    box.innerHTML = '<div class="coach"><p><b>' + S.coach + ".</b>" + m + '</p><button type="button" class="link" id="coach-x">Got it, stop the tips</button></div>';
+    $("coach-x").addEventListener("click", () => { S.coach = 9; persist(); drawCoach(); notes.place(); });
+  }
 
+  function drawRadio() {
+    const r = $("radio");
+    if (S.perm !== "granted") {
+      r.className = "radio off";
+      r.innerHTML = '<span class="led" aria-hidden="true"></span><span>Nearby access is off</span><button type="button" class="link" id="radio-on">Turn on</button>';
+      $("radio-on").addEventListener("click", () => system.open());
+      return;
+    }
+    r.className = "radio";
+    const n = S.folks.length;
+    r.innerHTML = '<span class="led" aria-hidden="true"></span><span>' + (n ? "Listening. " + n + (n === 1 ? " phone" : " phones") + " in range" : "Listening for phones nearby") + "</span>";
+  }
+
+  function drawPocket() {
+    const box = $("pocket");
+    const n = current();
+    $("carry-sub").textContent = S.pocket.length ? (S.pocket.length === 1 ? "Carrying 1 payment" : "Carrying " + S.pocket.length + " payments") : "Nothing in your pocket";
+    $("carry-badge").hidden = !S.pocket.length || S.tab === "s-carry";
+    if (!n) {
+      box.innerHTML = '<div class="empty"><p>empty pocket.</p><small>A payment you take lands here as a slip, stamped by everyone who carried it before you.</small></div>';
+      return;
+    }
+    const many = S.pocket.length > 1;
+    const thumb = fresher; fresher = false;
+    box.innerHTML =
+      '<div class="slip" id="slip" aria-label="Payment of ' + money(n.amount) + " USDC for " + esc(n.to) + ", carried by " + n.route.map((h) => esc(h.name)).join(", ") + '">' +
+        '<div class="s-top">' +
+          '<div class="s-row"><span>For <b>' + esc(n.to) + "</b></span>" +
+            (many ? '<button type="button" id="s-next" aria-label="Show next payment">' + (S.cursor + 1) + " of " + S.pocket.length + " &rsaquo;</button>" : '<span class="mono" style="font-size:12px">' + n.route.length + (n.route.length === 1 ? " stamp" : " stamps") + "</span>") +
+          "</div>" +
+          '<div class="s-amt">' + money(n.amount) + "<small>USDC</small></div>" +
+        "</div>" +
+        '<div class="s-perf" aria-hidden="true"></div>' +
+        '<div class="stamps" aria-hidden="true">' + n.route.map((h, i) => stamp(h, i, thumb && i === n.route.length - 1)).join("") +
+          '<span class="stamp yours" style="--rot:6deg"><b>you</b><i>--:--</i><s>next</s></span></div>' +
+        '<div class="s-foot"><span>Your share <b>' + money(shareOf(n.amount)) + '</b></span><span class="hand">drag me onto someone</span></div>' +
+      "</div>";
+    const row = box.querySelector(".stamps");
+    row.scrollLeft = row.scrollWidth;
+    if (many) $("s-next").addEventListener("click", () => { S.cursor = (S.cursor + 1) % S.pocket.length; drawPocket(); drawPrimary(); });
+    arm($("slip"));
+  }
+
+  function personState(f) {
+    const n = current();
+    if (n && f.name === n.to) return '<span class="for">FOR THEM</span>this payment is theirs';
+    if (f.holding) return '<span class="mini" aria-hidden="true"></span>Holding ' + money(f.holding.amount) + " for " + esc(f.holding.to);
+    const m = S.met.get(f.name);
+    if (m) { const a = ago(Date.now() - m); return a === "now" ? "Met just now" : "Met " + a + " ago"; }
+    return "New to you";
+  }
+
+  function drawPeople() {
+    const list = $("people");
+    const on = S.perm === "granted";
+    $("near-count").textContent = on && S.folks.length ? String(S.folks.length) : "";
+    const note = $("people-note");
+    if (!on) {
+      list.innerHTML = "";
+      note.hidden = false;
+      note.textContent = "Carrier cannot see anyone until nearby access is on. Turning it on sends nothing anywhere.";
+      return;
+    }
+    note.hidden = true;
+    // Keyed update: rows persist across ticks so a finger resting on one, or
+    // a slip hovering over one, is never pulled out from under it.
     const live = new Set(S.folks.map((f) => String(f.id)));
-    Array.from(q.children).forEach((n) => { if (!live.has(n.dataset.id)) n.remove(); });
-
+    $$("li", list).forEach((li) => { if (!li.dataset.id || !live.has(li.dataset.id)) li.remove(); });
     S.folks.forEach((f) => {
-      let b = q.querySelector('[data-id="' + f.id + '"]');
-      if (!b) {
-        b = document.createElement("button");
-        b.dataset.id = String(f.id);
-        b.className = "soul";
-        b.addEventListener("click", () => { S.sel = S.sel === f.id ? null : f.id; draw(); });
-        q.appendChild(b);
+      let li = list.querySelector('li[data-id="' + f.id + '"]');
+      if (!li) {
+        li = document.createElement("li");
+        li.dataset.id = String(f.id);
+        li.innerHTML = '<button type="button" class="person" data-id="' + f.id + '"></button>';
+        li.firstChild.addEventListener("click", () => { S.sel = S.sel === f.id ? null : f.id; drawPeople(); drawPrimary(); });
+        list.appendChild(li);
       }
-      b.className = "soul" + (f.holding ? " loaded" : "");
+      const b = li.firstChild;
+      if (f.fresh && !calm) { b.classList.add("enter"); f.fresh = false; } else b.classList.remove("enter");
       b.setAttribute("aria-pressed", String(S.sel === f.id));
+      const bars = f.dist < 3.5 ? 3 : f.dist < 7.5 ? 2 : 1;
       b.innerHTML =
-        '<span class="head" style="background:' + hueFor(f.name) + '">' + f.name[0] + "</span>" +
-        '<span class="nm">' + f.name + "</span>" +
-        '<span class="st">' + (S.met.has(f.id) ? "Met" : f.holding ? "Holding" : "New") + "</span>";
+        '<span class="av' + (S.met.has(f.name) ? " met" : "") + '" aria-hidden="true">' + esc(f.name.slice(0, 2)) + "</span>" +
+        '<span><span class="p-name">' + esc(f.name) + '</span><span class="p-state">' + personState(f) + "</span></span>" +
+        '<span class="p-dist" aria-label="about ' + Math.round(f.dist) + ' metres away"><span class="bars" data-b="' + bars + '"><i></i><i></i><i></i></span>' + Math.max(1, Math.round(f.dist)) + " m</span>";
     });
+    // While the radio is still finding people, show the shape of who is
+    // coming rather than a spinner.
+    if (S.folks.length < 3) {
+      const sk = document.createElement("li");
+      sk.innerHTML = '<div class="person sk-row" aria-hidden="true"><span class="sk a"></span><span><span class="sk l1"></span><span class="sk l2"></span></span><span class="sk r"></span></div>';
+      list.appendChild(sk);
+      if (!S.folks.length) list.appendChild(sk.cloneNode(true));
+    }
   }
 
   function drawPrimary() {
     const btn = $("primary");
-    const f = S.folks.find((x) => x.id === S.sel);
-    btn.className = "act";
-    if (!f) {
-      btn.disabled = true;
-      btn.textContent = S.folks.length ? "Pick someone nearby" : "Nobody nearby";
-      return;
-    }
+    const f = folkBy(S.sel);
+    const n = current();
     btn.disabled = false;
-    if (S.pocket.length) { btn.className = "act go"; btn.textContent = "Pass to " + f.name; }
-    else if (f.holding) { btn.className = "act go"; btn.textContent = "Take what " + f.name + " has"; }
-    else btn.textContent = "Say hello to " + f.name;
+    if (S.perm !== "granted") { btn.textContent = "Turn on nearby access"; btn.dataset.act = "perm"; return; }
+    if (!S.folks.length) { btn.disabled = true; btn.textContent = "Looking for people"; btn.dataset.act = ""; return; }
+    if (!f) { btn.disabled = true; btn.dataset.act = ""; btn.textContent = n ? "Tap someone to hand it to" : "Tap someone near you"; return; }
+    if (n) { btn.dataset.act = "pass"; btn.innerHTML = (f.name === n.to ? "Deliver " : "Hand ") + '<span class="amt">' + money(n.amount) + "</span> to " + esc(f.name); }
+    else if (f.holding) { btn.dataset.act = "take"; btn.innerHTML = 'Take <span class="amt">' + money(f.holding.amount) + "</span> from " + esc(f.name); }
+    else { btn.dataset.act = "hello"; btn.textContent = S.met.has(f.name) ? "Wave to " + f.name : "Say hello to " + f.name; }
   }
+  $("primary").addEventListener("click", () => {
+    const act = $("primary").dataset.act;
+    if (act === "perm") return system.open();
+    const f = folkBy(S.sel);
+    if (!f) return;
+    if (act === "pass") confirmPass(f); else if (act === "take") take(f); else if (act === "hello") hello(f);
+  });
 
-  function rankNow() {
-    let r = RANKS[0];
-    RANKS.forEach((x) => { if (S.met.size >= x.at) r = x; });
-    return r;
+  function evRow(e, fresh) {
+    const who = e.mine ? "You" : e.who || "";
+    return '<li class="ev' + (fresh ? " new" : "") + '"><span class="av' + (e.mine ? " you" : "") + '" aria-hidden="true">' +
+      esc(who.slice(0, e.mine ? 1 : 2)) + "</span><p>" + e.html + "</p><time>" + ago(Date.now() - e.at) + "</time></li>";
   }
-
-  function drawRank() { $("rank-name").textContent = rankNow().name; }
+  const drawPeek = () => { $("peek").innerHTML = S.feed.slice(0, 3).map((e) => evRow(e, false)).join(""); };
 
   function drawFeed() {
-    $("feed").innerHTML = S.feed.slice().sort((a, b) => b.at - a.at).map((e) => {
-      const named = e.html.match(/<b>([^<]+)<\/b>/);
-      const actor = e.mine ? "You" : named ? named[1] : "";
-      const cls = "line solid" + (e.fresh ? " new" : "");
-      e.fresh = false;
-      return '<div class="' + cls + '"><span class="who" style="background:' +
-        (e.mine ? "rgba(255,255,255,0.9);color:#12131A" : hueFor(actor || "Z")) + '">' +
-        (actor ? actor[0] : "·") + "</span><p>" + e.html + "</p><time>" +
-        ago(Date.now() - e.at) + "</time></div>";
-    }).join("");
+    const box = $("feed");
+    if (!S.feedReady) {
+      box.innerHTML = '<ul class="events" aria-label="Loading">' + [72, 88, 60, 80, 66, 90].map((w) =>
+        '<li class="ev sk-ev" aria-hidden="true"><span class="sk a"></span><span><span class="sk l" style="width:' + w + '%"></span><span class="sk l" style="width:' + (w - 34) + '%"></span></span><span class="sk" style="width:22px;height:10px;margin-top:6px"></span></li>').join("") + "</ul>";
+      setTimeout(() => { S.feedReady = true; if (S.tab === "s-around") drawFeed(); }, calm ? 150 : 650);
+      return;
+    }
+    const rows = S.feed.filter((e) => S.filter === "all" || e.mine);
+    if (!rows.length) {
+      box.innerHTML = '<div class="pocket"><div class="empty"><p>nothing of yours yet.</p><small>Take a payment on the Carry tab. Every handoff you make, and every settlement you earn from, is logged here.</small></div></div>';
+      return;
+    }
+    const hour = Date.now() - 3600000;
+    const recent = rows.filter((e) => e.at >= hour), older = rows.filter((e) => e.at < hour);
+    let html = "";
+    if (recent.length) html += '<p class="group">in the last hour</p><ul class="events">' + recent.map((e) => evRow(e, e.fresh && !calm)).join("") + "</ul>";
+    if (older.length) html += '<p class="group">earlier today</p><ul class="events">' + older.map((e) => evRow(e, false)).join("") + "</ul>";
+    rows.forEach((e) => { e.fresh = false; });
+    box.innerHTML = html;
   }
+  $$("#filter button").forEach((b) => b.addEventListener("click", () => {
+    S.filter = b.dataset.f;
+    $$("#filter button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    drawFeed();
+  }));
+
+  function rankNow() { let r = RANKS[0]; RANKS.forEach((x) => { if (S.met.size >= x.at) r = x; }); return r; }
 
   function drawYou() {
     const r = rankNow();
     const next = RANKS.find((x) => x.at > S.met.size);
-    $("you-key").textContent = S.key.slice(0, 6) + "..." + S.key.slice(-4);
+    const left = next ? next.at - S.met.size : 0;
+    const ladder = RANKS.map((x) => {
+      const cls = x === r ? "now" : x.at <= S.met.size ? "done" : "";
+      return '<li class="' + cls + '"' + (x === r ? ' aria-current="step"' : "") + '><span class="dot" aria-hidden="true"></span><span>' + x.name + '</span><span class="at">' + x.at + (x.at === 1 ? " person" : " people") + "</span></li>";
+    }).join("");
     $("you-body").innerHTML =
-      '<div class="purse solid" style="margin-bottom:12px">' +
-      '<div class="lab">Standing</div>' +
-      '<div class="fig" style="font-size:36px">' + r.name + "</div>" +
-      '<p class="sub" style="margin:10px 0 0">' +
-      (next ? "Meet " + (next.at - S.met.size) + " more to reach " + next.name
-            : "Nothing left to reach") + "</p></div>" +
-      '<div class="line solid"><p>You have met <b>' + S.met.size +
-      "</b> " + (S.met.size === 1 ? "person" : "people") + "</p></div>" +
-      '<div class="line solid"><p>You have passed on <b>' + S.passed +
-      "</b> " + (S.passed === 1 ? "payment" : "payments") + "</p></div>" +
-      '<div class="line solid"><p>Carrying <b>' + S.pocket.length + "</b> right now</p></div>" +
-      '<p class="sub" style="padding:14px 4px 0">Rank counts people, never handoffs. ' +
-      "Passing the same note back and forth with one friend moves nothing.</p>";
+      '<p class="rank-now">' + r.name + "</p>" +
+      '<p class="rank-cap">' + (next ? left + " more " + (left === 1 ? "person" : "people") + " and you are " + next.name.toLowerCase() : "nothing left to reach. you are the outbreak.") + "</p>" +
+      '<ol class="ladder" aria-label="Ranks">' + ladder + "</ol>" +
+      '<p class="rule">Rank counts people, never handoffs. Passing one payment back and forth with a friend moves nothing.</p>' +
+
+      '<div class="head"><span>So far</span></div>' +
+      '<div class="receipt"><div class="rh">CARRIER &middot; THIS PHONE</div><div class="rs">SINCE ' + hhmm(S.started || Date.now()) + " TODAY</div><hr><dl>" +
+      "<div><dt>People met</dt><dd>" + S.met.size + "</dd></div>" +
+      "<div><dt>Handed on</dt><dd>" + S.passed + "</dd></div>" +
+      "<div><dt>Carrying now</dt><dd>" + S.pocket.length + "</dd></div>" +
+      "<div><dt>Allowance</dt><dd>" + S.allowance + ".00</dd></div>" +
+      '</dl><hr><dl><div><dt>EARNED</dt><dd class="earned">' + money(S.earned) + " USDC</dd></div></dl></div>" +
+
+      '<div class="head"><span>This phone</span><button type="button" class="aside" id="copy-key">Copy key</button></div>' +
+      '<div class="tagwrap">' + keyTag("made") + "</div>" +
+
+      '<div class="head"><span>The small print</span></div>' +
+      '<ul class="rows">' +
+      '<li><button type="button" data-legal-you="terms">Terms of use<span class="meta">23 SEP 2026</span></button></li>' +
+      '<li><button type="button" data-legal-you="privacy">Privacy policy<span class="meta">23 SEP 2026</span></button></li>' +
+      '<li><button type="button" id="radio-row">Nearby access<span class="meta">' + (S.perm === "granted" ? "ON" : "OFF") + "</span></button></li>" +
+      '<li><button type="button" class="danger" id="reset">Remove key and start over</button></li>' +
+      "</ul>" +
+      '<p class="fine">Carrier 0.1 on Solana devnet<br>Program CJBPBb6WBPWptmpiW4Kdb7SeRC7Cmob5YAaBtKSMXBvt</p>';
+
+    $("copy-key").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(S.key); toast("Key copied"); } catch { toast("Could not reach the clipboard"); }
+    });
+    $("radio-row").addEventListener("click", () => { if (S.perm !== "granted") system.open(); else toast("Nearby access is on. Turn it off in Android settings."); });
+    $$("[data-legal-you]").forEach((b) => b.addEventListener("click", () => openLegal(b.dataset.legalYou)));
+    $("reset").addEventListener("click", () => {
+      openSheet(
+        '<h3 id="sheet-title">Remove this phone&rsquo;s key?</h3>' +
+        '<p class="lede">Payments you are carrying go with it, and so does any share they would have earned you. The key cannot be recovered.</p>' +
+        '<div class="dock"><button type="button" class="btn danger" id="reset-yes">Remove key</button><button type="button" class="btn quiet" data-close>Keep it</button></div>'
+      );
+      $("reset-yes").addEventListener("click", () => { closeSheet(); restart(); });
+    });
   }
 
-  function drawPeek() {
-    $("peek").innerHTML = S.feed.slice().sort((a, b) => b.at - a.at).slice(0, 3)
-      .map((e) => {
-        const named = e.html.match(/<b>([^<]+)<\/b>/);
-        const actor = e.mine ? "You" : named ? named[1] : "";
-        return '<div class="line solid"><span class="who" style="background:' +
-          (e.mine ? "#fff;color:#12131A" : hueFor(actor || "Z")) + '">' +
-          (actor ? actor[0] : "\u00b7") + "</span><p>" + e.html + "</p><time>" +
-          ago(Date.now() - e.at) + "</time></div>";
+  function draw() {
+    if (!S.landed) return;
+    drawRadio(); drawCoach();
+    // Never swap the slip out from under a finger that is carrying it.
+    if (!S.dragging) drawPocket();
+    drawPeople(); drawPrimary(); drawPeek();
+    notes.place();
+  }
+
+  /* ── navigation ─────────────────────────────────────────────────────── */
+  function show(id) {
+    S.tab = id;
+    $$(".screen").forEach((el) => el.classList.toggle("on", el.id === id));
+    $$(".tab").forEach((el) => { if (el.dataset.go === id) el.setAttribute("aria-current", "page"); else el.removeAttribute("aria-current"); });
+    $("carry-badge").hidden = !S.pocket.length || id === "s-carry";
+    if (id === "s-carry") draw();
+    if (id === "s-around") { $("around-badge").hidden = true; drawFeed(); }
+    if (id === "s-you") drawYou();
+    notes.place();
+  }
+  document.addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) show(b.dataset.go); });
+
+  function restart() {
+    forget();
+    scanTimers.forEach(clearTimeout);
+    Object.assign(S, { step: 0, perm: "unset", key: "", allowance: 25, signed: false, landed: false, coach: 0, folks: [], pocket: [], feedReady: false });
+    $$("#allowance button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "25")));
+    $("tabs").hidden = true;
+    $$(".screen").forEach((el) => el.classList.remove("on"));
+    $("intro").hidden = false;
+    drawPerm(); drawKeybox(); drawSign();
+    goStep(0);
+  }
+  $("replay").addEventListener("click", restart);
+
+  /* ── chalk notes on the denim ───────────────────────────────────────── */
+  /* Each note is pinned to a real element inside the phone and redrawn when
+     that element moves, so an arrow never points at empty glass. */
+  const notes = (() => {
+    const layer = $("notes");
+    const SETS = {
+      intro: [
+        { sel: ".progress", text: "four steps. about a minute.", tilt: -3 },
+        { sel: "#demo .slip", text: "a stamp for every pair of hands. that row is the whole ledger.", tilt: -2 },
+        { sel: "#ob-next", text: "no email, no password, nothing to sign up for", tilt: 2 },
+      ],
+      app: [
+        { sel: "#sig", text: "no bars. that is the point.", tilt: -3 },
+        { sel: "#pocket", text: "pick the slip up and drop it on a face", tilt: -2 },
+        { sel: "#people", text: "these people are simulated. they wander off.", tilt: 2 },
+      ],
+    };
+    let raf = 0;
+    function render() {
+      raf = 0;
+      if (innerWidth < 1240) { layer.innerHTML = ""; return; }
+      const dev = $("device").getBoundingClientRect();
+      const table = layer.getBoundingClientRect();
+      const set = S.landed ? SETS.app : SETS.intro;
+      let floor = -Infinity;
+      const html = set.map((n) => {
+        const el = document.querySelector(n.sel);
+        if (!el) return "";
+        const r = el.getBoundingClientRect();
+        if (!r.height || r.bottom < dev.top + 8 || r.top > dev.bottom - 40) return "";
+        const ty = Math.max(dev.top + 30, Math.min(dev.bottom - 30, r.top + Math.min(r.height / 2, 60)));
+        const tx = Math.min(r.right, dev.right - 14) + 8;
+        const y = Math.max(ty - 22, floor + 18);
+        floor = y + 64;
+        const x = dev.right + 70;
+        // Arrow from the start of the note back to the target, bowed a little.
+        const sx = -10, sy = 12, ex = tx - x, ey = ty - y;
+        const cx = (sx + ex) / 2, cy = Math.min(sy, ey) - 34;
+        const ang = Math.atan2(ey - cy, ex - cx);
+        const h = (a) => (ex + 11 * Math.cos(ang + a)).toFixed(1) + " " + (ey + 11 * Math.sin(ang + a)).toFixed(1);
+        return '<div class="cnote" style="left:' + (x - table.left) + "px;top:" + (y - table.top) + "px;--tilt:" + n.tilt + 'deg"><span>' + n.text + "</span>" +
+          '<svg><path d="M' + sx + " " + sy + " Q " + cx.toFixed(1) + " " + cy.toFixed(1) + " " + ex.toFixed(1) + " " + ey.toFixed(1) + '"/><path d="M' + h(Math.PI - 0.5) + " L " + ex.toFixed(1) + " " + ey.toFixed(1) + " L " + h(Math.PI + 0.5) + '"/></svg></div>';
       }).join("");
-  }
-
-  function draw() { drawPurse(); drawQueue(); drawPrimary(); drawRank(); drawPeek(); }
-
-  $("primary").addEventListener("click", () => {
-    const f = S.folks.find((x) => x.id === S.sel);
-    if (!f) return;
-    if (S.pocket.length) { openPass(f); return; }
-
-    const fresh = !S.met.has(f.id);
-    S.met.add(f.id);
-    if (f.holding) {
-      f.holding = false;
-      S.pocket.unshift(newNote(f.name));
-      toast("You caught one from " + f.name);
-      log("You took <i>" + S.pocket[0].amount.toFixed(2) + "</i> from <b>" + f.name + "</b>", true);
-    } else {
-      toast(fresh ? "You met " + f.name : "You know " + f.name + " already");
-      if (fresh) log("You met <b>" + f.name + "</b>", true);
+      layer.innerHTML = html;
     }
-    f.goesAt = Date.now() + rand(3000, 6000);
-    S.sel = null;
-    draw();
-  });
+    const place = () => { if (!raf) raf = requestAnimationFrame(render); };
+    addEventListener("resize", place);
+    document.addEventListener("scroll", place, true);
+    return { place };
+  })();
 
+  /* ── the world keeps moving ─────────────────────────────────────────── */
   setInterval(() => {
-    if (!S.landed) return;
+    if (!S.landed || S.perm !== "granted" || S.dragging || S.started > Date.now() - 5000) return;
     const now = Date.now();
+    S.folks.forEach((f) => { f.dist = Math.min(13, Math.max(0.8, f.dist + rand(-1.4, 1.4))); });
     const before = S.folks.length;
-    S.folks = S.folks.filter((f) => f.goesAt > now);
-    while (S.folks.length < 2) S.folks.push(newFolk());
-    if (S.folks.length < 4 && Math.random() < 0.4) S.folks.push(newFolk());
-    if (S.folks.length !== before) {
-      if (S.sel && !S.folks.some((f) => f.id === S.sel)) S.sel = null;
-      drawQueue(); drawPrimary();
-    }
-  }, calm ? 3600 : 2300);
+    S.folks = S.folks.filter((f) => f.goesAt > now || f.id === S.sel);
+    if (S.folks.length < 2 || (S.folks.length < 5 && Math.random() < 0.3)) S.folks.push(newFolk());
+    if (!S.pocket.length && !S.folks.some((f) => f.holding)) S.folks.push(newFolk({ holding: true }));
+    if (S.folks.length !== before) drawRadio();
+    drawPeople(); drawPrimary(); notes.place();
+  }, calm ? 4000 : 2600);
 
-  for (let i = 0; i < 3; i += 1) S.folks.push(newFolk());
-  S.pocket.push(newNote());
-  let back = 0;
-  for (let i = 0; i < 10; i += 1) {
-    back += rand(150000, 900000);
-    S.feed.push({ html: chatter(), mine: false, at: Date.now() - back, fresh: false });
-  }
   setInterval(() => {
     if (!S.landed) return;
-    log(chatter());
-    if ($("s-feed").classList.contains("on")) drawFeed();
-  }, calm ? 45000 : 20000);
+    chatter();
+    if (S.tab === "s-around") drawFeed(); else if (S.tab === "s-carry") drawPeek();
+  }, calm ? 40000 : 18000);
+
+  /* ── boot ───────────────────────────────────────────────────────────── */
+  drawSign();
+  if (saved && saved.key) {
+    // A phone that already has a key goes straight to work.
+    S.key = saved.key; S.allowance = saved.allowance || 25; S.perm = saved.perm || "granted"; S.coach = saved.coach || 1;
+    $$("#allowance button").forEach((x) => x.setAttribute("aria-pressed", String(Number(x.dataset.v) === S.allowance)));
+    drawPerm(); drawKeybox();
+    land();
+  } else {
+    drawPerm(); drawKeybox(); goStep(0);
+  }
+  if (document.fonts) document.fonts.ready.then(() => notes.place());
 })();
 </script>
+</body>
+</html>
