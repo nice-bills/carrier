@@ -12,12 +12,14 @@ import { Onboarding } from "./src/screens/Onboarding";
 import { CarryScreen } from "./src/screens/Carry";
 import { AroundScreen } from "./src/screens/Around";
 import { YouScreen } from "./src/screens/You";
+import { MapScreen, type MapView } from "./src/screens/Map";
+import type { Cell, Route } from "./src/map/types";
 import { HandFailedSheet, LegalSheet, PassSheet, PaySheet, PouchSheet, ReceiptSheet } from "./src/screens/Sheets";
 import { RankUp } from "./src/screens/RankUp";
 import { RANKS, rankFor } from "./src/rank";
 
 /**
- * Carrier: onboarding, then three tabs (Carry, Around, You) and the sheets
+ * Carrier: onboarding, then four tabs (Carry, Around, Map, You) and the sheets
  * that confirm anything that moves money. Reaching a new rank takes over the
  * screen for a moment; a handoff that did not finish gets its own sheet.
  *
@@ -41,6 +43,12 @@ export interface DemoScript {
   reducedMotion?: boolean;
   /** Open on the rank-up screen for this rank. */
   rankUp?: string;
+  /** Map tab: which view it opens on. */
+  mapView?: MapView;
+  /** Map tab: which of your routes "This payment" opens on (else your newest). */
+  mapFocus?: (routes: readonly Route[]) => string | null;
+  /** Names the demo campus's places on the map ("settled at Labs"). A phone has no names for places. */
+  placeName?: (cell: Cell) => string | null;
   /** Called once the app is ready, to stage what the screen needs (a receipt, a moment). */
   stage?: (c: ReturnType<typeof useCarrier>) => void;
 }
@@ -68,6 +76,9 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
   // Height of the current screen's bottom buttons; toasts sit above them.
   const [dockH, setDockH] = useState(0);
   const [rankUp, setRankUp] = useState<string | null>(demo?.rankUp ?? null);
+  const [mapView, setMapView] = useState<MapView>(demo?.mapView ?? "route");
+  // The route the Map tab shows under "This payment"; null means your newest.
+  const [mapFocus, setMapFocus] = useState<string | null>(null);
   const lastRank = useRef<string | null>(null);
 
   const ready = c.boot.state === "ready";
@@ -205,6 +216,8 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
                 goTab("carry");
               }}
             />
+          ) : tab === "map" ? (
+            <MapScreen c={c} view={mapView} setView={setMapView} focusId={mapFocus ?? demo?.mapFocus?.(c.routes) ?? null} setFocusId={setMapFocus} placeName={demo?.placeName} />
           ) : (
             <YouScreen c={c} onSetup={() => setPouchOpen(true)} onLegal={setLegal} />
           )}
@@ -228,7 +241,22 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
             }}
           />
         ) : null}
-        <ReceiptSheet c={c} receipt={c.receipt} onClose={c.closeReceipt} />
+        <ReceiptSheet
+          c={c}
+          receipt={c.receipt}
+          onClose={c.closeReceipt}
+          onSeeRoute={
+            c.receipt && c.mapOn && c.routes.some((r) => r.id === c.receipt!.hash)
+              ? () => {
+                  const id = c.receipt!.hash;
+                  c.closeReceipt();
+                  setMapFocus(id);
+                  setMapView("route");
+                  goTab("map");
+                }
+              : undefined
+          }
+        />
         <PouchSheet c={c} visible={pouchOpen} onClose={() => setPouchOpen(false)} />
         <HandFailedSheet
           c={c}

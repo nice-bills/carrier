@@ -37,6 +37,7 @@ import {
   useReducedMotion,
 } from "../ui/kit";
 import type { Carrier } from "../useCarrier";
+import { MapGlyph } from "../ui/chrome";
 import { slipFacts } from "./Slip";
 import { money } from "./You";
 
@@ -588,7 +589,18 @@ function PathCard({ nodes }: { nodes: PathNode[] }) {
   );
 }
 
-export function ReceiptSheet({ c, receipt, onClose }: { c: Carrier; receipt: SettlementReceipt | null; onClose: () => void }) {
+export function ReceiptSheet({
+  c,
+  receipt,
+  onClose,
+  onSeeRoute,
+}: {
+  c: Carrier;
+  receipt: SettlementReceipt | null;
+  onClose: () => void;
+  /** Closes the sheet and opens the Map on this payment's route; absent when there is no route to show. */
+  onSeeRoute?: () => void;
+}) {
   useEffect(() => {
     if (receipt) buzz("success");
   }, [receipt]);
@@ -649,6 +661,9 @@ export function ReceiptSheet({ c, receipt, onClose }: { c: Carrier; receipt: Set
         ))}
       </Receipt>
       <Dock>
+        {onSeeRoute ? (
+          <Button label="See where it went" hint="Opens the map on this payment's route" variant="quiet" onPress={onSeeRoute} icon={<MapGlyph colour={C.ink} />} />
+        ) : null}
         <Button label="Done" onPress={onClose} />
       </Dock>
     </Sheet>
