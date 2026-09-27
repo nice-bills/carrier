@@ -187,8 +187,10 @@ function demoChain(opts: DemoOptions, state: { pouch: CachedPouch | null }): Cha
     async settle(_wallet, bundle: Bundle) {
       await wait(900);
       if (state.pouch && bundle.owner.equals(cast.me.publicKey)) {
-        const w = BigInt(state.pouch.spent[0]!) | (1n << BigInt(bundle.note.slotIndex));
-        state.pouch = { ...state.pouch, spent: [w.toString(), "0", "0", "0"] };
+        const slot = bundle.note.slotIndex;
+        const spent = [...state.pouch.spent];
+        spent[slot >> 6] = (BigInt(spent[slot >> 6]!) | (1n << BigInt(slot & 63))).toString();
+        state.pouch = { ...state.pouch, spent };
       }
       return { signatures: ["5DemoSettLeMentSigNatureXyZ1111111111111111111111111111111111111"] };
     },

@@ -6,6 +6,7 @@ import {
   type TransactionInstruction,
 } from "@solana/web3.js";
 import {
+  createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -127,13 +128,20 @@ export async function buildClosePouchTx(
   const programId = p.programId ?? PROGRAM_ID;
   const tokenProgram = p.tokenProgram ?? (await tokenProgramForMint(connection, p.mint));
   const pouch = pouchAddress(p.owner, p.mint, programId);
+  const destination = p.destination ?? getAssociatedTokenAddressSync(p.mint, p.owner, true, tokenProgram);
+  // The default destination may not exist yet (the pouch can be funded from
+  // any account), and the program requires an existing token account.
+  const ensureDestination = p.destination
+    ? []
+    : [createAssociatedTokenAccountIdempotentInstruction(p.owner, destination, p.owner, p.mint, tokenProgram)];
   return unsigned(connection, p.owner, [
+    ...ensureDestination,
     closePouchInstruction(
       {
         owner: p.owner,
         pouch,
         vault: vaultAddress(pouch, programId),
-        destination: p.destination ?? getAssociatedTokenAddressSync(p.mint, p.owner, true, tokenProgram),
+        destination,
         mint: p.mint,
         tokenProgram,
       },
