@@ -70,7 +70,9 @@ const hold = async (text) => {
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pt });
   await p.waitForTimeout(600); await snap("holding");
   await p.waitForTimeout(700);
-  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  // The sheet has closed under the finger by now. A browser would turn a plain
+  // lift into a click on whatever is underneath, which a phone does not do.
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
 };
 await step("sign pay", () => hold(/^Hold to sign|^Keep holding/), 2500);
 await texts("after pay:");
