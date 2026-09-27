@@ -82,4 +82,9 @@ export interface Services {
   openUrl(url: string): void;
   /** Share text (the device key) through the system share sheet. */
   share(text: string): Promise<void>;
+  /**
+   * Preview only: the QR codes the pretend people would hold up, for the
+   * browser's pretend camera. `shown` is what this phone is showing them.
+   */
+  scanFeed?(want: "key" | "slip" | "receipt", shown?: string[]): Promise<string[]>;
 }

@@ -17,6 +17,7 @@ export default defineConfig({
       { find: /^expo$/, replacement: here("./expo-stub.ts") },
       { find: /^expo-status-bar$/, replacement: here("./status-bar-stub.ts") },
       { find: /^expo-haptics$/, replacement: here("./haptics-stub.ts") },
+      { find: /^react-native-svg$/, replacement: here("./svg-stub.tsx") },
     ],
   },
   define: { "process.env": {}, __DEV__: "false", global: "globalThis" },

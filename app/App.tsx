@@ -10,6 +10,7 @@ import { Button, MotionOverride, type } from "./src/ui/kit";
 import { DockRoom, Moment, TabBar, Toast, type Tab } from "./src/ui/chrome";
 import { Onboarding } from "./src/screens/Onboarding";
 import { CarryScreen } from "./src/screens/Carry";
+import { QrHandoff, type QrStart } from "./src/screens/QrHandoff";
 import { AroundScreen } from "./src/screens/Around";
 import { YouScreen } from "./src/screens/You";
 import { MapScreen, type MapView } from "./src/screens/Map";
@@ -70,6 +71,7 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
   const [passing, setPassing] = useState<{ bundle: Bundle; peer: PublicKey } | null>(null);
   const [paying, setPaying] = useState<{ to: PublicKey | null } | null>(null);
   const [pouchOpen, setPouchOpen] = useState(false);
+  const [qr, setQr] = useState<QrStart | null>(null);
   const [legal, setLegal] = useState<"terms" | "privacy" | null>(null);
   const [seen, setSeen] = useState({ around: 0, carry: 0 });
   const [staged, setStaged] = useState(false);
@@ -206,6 +208,7 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
               onPass={(bundle, peer) => setPassing({ bundle, peer })}
               onPay={(to) => setPaying({ to: to ?? null })}
               onSeeAll={() => goTab("around")}
+              onQr={(bundle) => setQr(bundle ? { kind: "give", bundle } : { kind: "receive" })}
               forceTarget={demo?.dragOver ?? null}
             />
           ) : tab === "around" ? (
@@ -257,6 +260,7 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
               : undefined
           }
         />
+        {ready ? <QrHandoff c={c} start={qr} onClose={() => setQr(null)} /> : null}
         <PouchSheet c={c} visible={pouchOpen} onClose={() => setPouchOpen(false)} />
         <HandFailedSheet
           c={c}

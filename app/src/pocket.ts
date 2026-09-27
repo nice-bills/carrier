@@ -97,6 +97,8 @@ export const MAX_RESTORED = MAX_HELD_NOTES;
 export const MAX_PULL_PER_CONTACT = 16;
 /** How long an offer we made stays open for its acknowledgement. */
 const OFFER_TTL_MS = 60_000;
+/** A slip shown as a QR code waits longer: two people pointing phones at each other. */
+export const QR_OFFER_TTL_MS = 10 * 60_000;
 /** How long a "hand this to X" stays good if X never asks for it. */
 export const HAND_TTL_MS = 60_000;
 const MAX_FEED = 80;
@@ -232,7 +234,7 @@ const lastCarrierOf = (b: Bundle) => (b.hops.length ? b.hops[b.hops.length - 1]!
 export class Pocket implements HandoffServer {
   private readonly met = new Set<string>();
   /** Hops we offered, awaiting the peer's counter-signature. */
-  private readonly offered = new Map<string, { hop: Hop; at: number }>();
+  private readonly offered = new Map<string, { hop: Hop; at: number; ttl: number }>();
   /** Notes the person chose to hand to someone: note hash -> peer. */
   private readonly handing = new Map<string, { peer: string; at: number }>();
   private writing: Promise<void> = Promise.resolve();
@@ -500,14 +502,14 @@ export class Pocket implements HandoffServer {
     return this.node.digests().filter((d) => this.mayServe(d, peer));
   }
 
-  offerFor(noteHash: string, peer: PublicKey): TrailedOffer {
+  offerFor(noteHash: string, peer: PublicKey, ttl = OFFER_TTL_MS): TrailedOffer {
     if (!this.mayServe(noteHash, peer)) throw new MeshError("not offered to this peer");
     // The node refuses to build a hop the program would not pay (a repeated
     // carrier, or the sender as carrier) and hands a note to its recipient
     // without adding a hop.
     const offer = this.node.prepareHandoff(noteHash, peer, nowSeconds());
     this.sweepOffers();
-    this.offered.set(`${peer.toBase58()}:${noteHash}`, { hop: offer.hop, at: Date.now() });
+    this.offered.set(`${peer.toBase58()}:${noteHash}`, { hop: offer.hop, at: Date.now(), ttl });
     // The trail goes on as this phone knows it. The taker's point is the
     // taker's to add: a point naming someone is only ever made on their own
     // phone, with their map on.
@@ -515,22 +517,23 @@ export class Pocket implements HandoffServer {
     return trail.length ? { ...offer, trail } : offer;
   }
 
-  acknowledged(peer: PublicKey, noteHash: string, signature: Uint8Array): void {
+  acknowledged(peer: PublicKey, noteHash: string, signature: Uint8Array): boolean {
+    this.sweepOffers();
     const k = `${peer.toBase58()}:${noteHash}`;
     const open = this.offered.get(k);
-    if (!open) return;
+    if (!open) return false;
     // Only a real counter-signature over the hop we offered counts: it is the
     // receiver's proof it took the note. A bare "ack" from anyone does not.
     if (
       signature.length !== 64 ||
       !nacl.sign.detached.verify(hopSigningPayload(open.hop), signature, peer.toBytes())
     ) {
-      return;
+      return false;
     }
     this.offered.delete(k);
     const bundle = this.node.bundle(noteHash);
     this.meet(peer);
-    if (!bundle) return;
+    if (!bundle) return true;
 
     // It is theirs to carry now. Forget it here, but remember enough to notice
     // when it settles and to show what happened.
@@ -563,6 +566,7 @@ export class Pocket implements HandoffServer {
     );
     this.changed();
     this.persist().catch(() => {});
+    return true;
   }
 
   // --- handing and taking -----------------------------------------------------
@@ -582,6 +586,27 @@ export class Pocket implements HandoffServer {
     if (!b.note.to.equals(peer) && b.hops.length >= MAX_CHAIN) throw new MeshError("this payment has as many stamps as it can take");
     this.sweepHanding();
     this.handing.set(noteHash, { peer: peer.toBase58(), at: Date.now() });
+  }
+
+  /**
+   * Hand a note over by QR code: sign the hop to `peer` (whose key code we
+   * scanned) and keep the offer open while they scan it and show a receipt.
+   */
+  qrOffer(noteHash: string, peer: PublicKey): TrailedOffer {
+    this.handTo(noteHash, peer);
+    return this.offerFor(noteHash, peer, QR_OFFER_TTL_MS);
+  }
+
+  /**
+   * Take a slip scanned from `giver`'s screen: the same checks as over the
+   * radio, then our counter-signature, which becomes the receipt code the
+   * giver scans back.
+   */
+  async qrTake(offer: TrailedOffer, giver: PublicKey): Promise<{ bundle: Bundle; receipt: Uint8Array }> {
+    const bundle = this.accept(offer, giver, "handed");
+    const receipt = this.signer.sign(hopSigningPayload(offer.hop));
+    await this.persist().catch(() => {});
+    return { bundle, receipt };
   }
 
   /** Drop a pending hand-over, e.g. after the other phone never asked. */
@@ -1093,7 +1118,7 @@ export class Pocket implements HandoffServer {
 
   private sweepOffers() {
     const now = Date.now();
-    for (const [k, v] of this.offered) if (now - v.at > OFFER_TTL_MS) this.offered.delete(k);
+    for (const [k, v] of this.offered) if (now - v.at > v.ttl) this.offered.delete(k);
   }
 
   private sweepHanding() {

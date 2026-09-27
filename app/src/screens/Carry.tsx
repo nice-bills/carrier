@@ -12,6 +12,7 @@ import type { Carrier } from "../useCarrier";
 import { FeedRow, PeopleEmpty, PersonRow, type PersonInfo } from "./People";
 import { SlipView, slipFacts, slipLabel } from "./Slip";
 import { radioLine } from "./radioLine";
+import { QrGlyph, ScanIcon } from "../ui/QrCode";
 
 /**
  * Carry: what is in your pocket, and who is near enough to hand it to.
@@ -30,6 +31,7 @@ export function CarryScreen({
   onPass,
   onPay,
   onSeeAll,
+  onQr,
   forceTarget,
 }: {
   c: Carrier;
@@ -42,6 +44,8 @@ export function CarryScreen({
   /** Open the pay sheet, optionally with a recipient. */
   onPay: (to?: PublicKey) => void;
   onSeeAll: () => void;
+  /** Hand over by QR code: show this slip, or (no slip) scan someone else's. */
+  onQr: (bundle?: Bundle) => void;
   /** Demo only: draw this person as the drop target, slip lifted. */
   forceTarget?: string | null;
 }) {
@@ -251,7 +255,20 @@ export function CarryScreen({
       <ScreenHead
         title="Carry"
         sub={sub}
-        aside={<PillButton label="Pay" hint="Sign a new payment from your pouch" icon={<Plus />} onPress={() => onPay()} />}
+        aside={
+          <View style={s.headBtns}>
+            <Pressable
+              onPress={() => onQr()}
+              accessibilityRole="button"
+              accessibilityLabel="Take a payment by QR code"
+              accessibilityHint="Shows your code, then scans the slip on their phone"
+              style={({ pressed }) => [s.scanBtn, pressed && { backgroundColor: C.paper2 }]}
+            >
+              <ScanIcon />
+            </Pressable>
+            <PillButton label="Pay" hint="Sign a new payment from your pouch" icon={<Plus />} onPress={() => onPay()} />
+          </View>
+        }
       />
       <ScrollView scrollEnabled={scrollOn} contentContainerStyle={s.body}>
         <View style={s.radio} accessible accessibilityLiveRegion="polite" accessibilityLabel={radioLine(radio, people.length)}>
@@ -331,6 +348,18 @@ export function CarryScreen({
                     <Text style={s.nextText}>Next slip</Text>
                   </Pressable>
                 ) : null}
+                {passable ? (
+                  <Pressable
+                    onPress={() => onQr(current)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Show as QR code"
+                    accessibilityHint="Hands this payment over by QR code, for a phone the radio can't reach"
+                    style={({ pressed }) => [s.pocketBtn, s.qrBtn, slips.length > 1 ? s.qrBtnSmall : s.qrBtnWide, pressed && { opacity: 0.85 }]}
+                  >
+                    <QrGlyph />
+                    {slips.length > 1 ? null : <Text style={s.nextText}>Show as QR</Text>}
+                  </Pressable>
+                ) : null}
                 <SettleControl c={c} bundle={current} />
               </View>
             </>
@@ -379,8 +408,8 @@ export function CarryScreen({
           <PeopleEmpty
             text={
               radio.state === "on"
-                ? "Nobody with Carrier open is in range yet. Handoffs reach about as far as you could pass something across a room."
-                : "Carrier cannot see anyone until the radio is on. Turning it on sends nothing anywhere."
+                ? "Nobody with Carrier open is in range yet. Handoffs reach about as far as you could pass something across a room. Their phone not showing up? The scan button up top hands over by QR code instead."
+                : "Carrier cannot see anyone until the radio is on. Turning it on sends nothing anywhere. You can still hand over by QR code with the scan button up top."
             }
           />
         )}
@@ -526,6 +555,11 @@ const s = StyleSheet.create({
   slipControls: { flexDirection: "row", gap: 8, marginTop: 10, alignItems: "flex-start" },
   pocketBtn: { minHeight: 52, paddingHorizontal: 14, borderRadius: 14, justifyContent: "center", alignItems: "center" },
   nextBtn: { flex: 1, backgroundColor: C.denimDeep },
+  headBtns: { flexDirection: "row", alignItems: "center", gap: 8 },
+  scanBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.card, borderWidth: 1.5, borderColor: C.rule, alignItems: "center", justifyContent: "center" },
+  qrBtn: { flexDirection: "row", gap: 8, backgroundColor: C.denimDeep },
+  qrBtnWide: { flex: 1 },
+  qrBtnSmall: { width: 52, paddingHorizontal: 0 },
   nextText: { fontFamily: FONT.face, fontSize: 16, fontWeight: "600", color: C.chalk },
   settleBtn: { backgroundColor: C.chalk },
   settleText: { fontFamily: FONT.face, fontSize: 16, fontWeight: "700", color: C.denimDark },

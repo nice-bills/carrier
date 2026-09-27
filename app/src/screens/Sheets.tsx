@@ -48,7 +48,7 @@ const PUBLIC_RECORD = "When it settles, the keys of everyone who carried it, and
 // --- small local pieces ----------------------------------------------------------------
 
 /** A red line on its soft fill: errors and the over-the-limit warning. */
-function ErrorLine({ children, live = "assertive" }: { children: ReactNode; live?: "polite" | "assertive" }) {
+export function ErrorLine({ children, live = "assertive" }: { children: ReactNode; live?: "polite" | "assertive" }) {
   return (
     <View style={ps.errBox}>
       <View style={ps.errI} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>

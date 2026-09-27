@@ -1,0 +1,61 @@
+# Builds an unsigned Carrier.ipa on a GitHub macOS runner, for sideloading
+# with a free Apple ID (see docs/iphone-sideload.md). Run it from the Actions
+# tab ("Run workflow"); the .ipa is attached to the run as an artifact.
+name: iPhone build (unsigned, for sideloading)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/ios-sideload.yml
+
+concurrency:
+  group: ios-sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Also applies patches/ (the iOS Multipeer fix) via postinstall.
+      - run: npm ci
+
+      - name: Generate the Xcode project and install pods
+        working-directory: app
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Build for iPhone without signing
+        working-directory: app/ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace Carrier.xcworkspace \
+            -scheme Carrier \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination generic/platform=iOS \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -n 200
+
+      - name: Package Carrier.ipa
+        working-directory: app/ios
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Carrier.app Payload/
+          zip -qry Carrier.ipa Payload
+          ls -la Carrier.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Carrier-unsigned-ipa
+          path: app/ios/Carrier.ipa
+          retention-days: 30
