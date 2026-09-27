@@ -146,7 +146,12 @@ export function reassemble(frames: readonly unknown[], digest?: string): Uint8Ar
 export class Reassembler {
   private readonly pending = new Map<string, { total: number; slots: (Uint8Array | undefined)[] }>();
 
-  constructor(private readonly maxTransfers = 4) {}
+  constructor(private readonly maxTransfers = 4) {
+    // Zero or less would make eviction in `push` spin forever.
+    if (!Number.isInteger(maxTransfers) || maxTransfers < 1) {
+      throw new RangeError(`maxTransfers must be a positive integer, got ${maxTransfers}`);
+    }
+  }
 
   push(input: unknown): { digest: string; body: Uint8Array } | null {
     if (!isFrame(input)) return null;

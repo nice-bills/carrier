@@ -49,6 +49,9 @@ export default function App() {
   const [met, setMet] = useState(0);
   const transport = useRef<NearbyTransport | null>(null);
   const exchanging = useRef(new Set<string>());
+  // Bumped on every stop, so a start still awaiting permissions can tell it
+  // was cancelled and must not bring the radio up afterwards.
+  const radioGen = useRef(0);
 
   const load = useCallback(async () => {
     setBoot({ state: "loading" });
@@ -84,6 +87,7 @@ export default function App() {
   }, [pocket]);
 
   const stopRadio = useCallback(async () => {
+    radioGen.current += 1;
     const t = transport.current;
     transport.current = null;
     setRadio({ state: "off" });
@@ -93,14 +97,19 @@ export default function App() {
 
   const startRadio = useCallback(async () => {
     if (!pocket || !wallet || transport.current) return;
+    const gen = radioGen.current;
+    const cancelled = () => gen !== radioGen.current;
     setRadio({ state: "starting" });
     try {
       const perms = await ensureRadioPermissions();
+      if (cancelled()) return;
       if (!perms.granted) {
         setRadio({ state: "needs-permission", blocked: perms.blocked });
         return;
       }
-      if (!(await isPlayServicesAvailable())) {
+      const playServices = await isPlayServicesAvailable();
+      if (cancelled()) return;
+      if (!playServices) {
         setRadio({ state: "unavailable", reason: "This phone has no Google Play services, which the radio needs." });
         return;
       }
@@ -126,8 +135,15 @@ export default function App() {
       });
       transport.current = t;
       await t.advertise();
+      if (cancelled()) {
+        // Stopped while advertising came up: this instance is already
+        // detached, so shut it down rather than leave the radio running.
+        await t.stop().catch(() => {});
+        return;
+      }
       setRadio({ state: "on" });
     } catch (e) {
+      if (cancelled()) return;
       transport.current = null;
       setRadio({ state: "unavailable", reason: `The radio would not start: ${(e as Error).message}` });
     }

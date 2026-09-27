@@ -283,3 +283,23 @@ describe("splitting the bounty", () => {
     ).toBe(0);
   });
 });
+
+describe("fixed-point convergence", () => {
+  it("still reaches the fixed point when the contraction factor is close to 1", () => {
+    const rules: ScoringRules = { ...DEFAULT_RULES, standingThreshold: 1, damping: 0.999, vouchCapacity: 1 };
+    const h = new EncounterHistory(["seed"]);
+    const chain = Array.from({ length: 30 }, (_, i) => `k${i}`);
+    h.record("seed", chain[0]!);
+    for (let i = 1; i < chain.length; i += 1) h.record(chain[i - 1]!, chain[i]!);
+
+    const s = standings(h, rules);
+    // At the fixed point, each key's standing is exactly its inflow over the threshold.
+    for (const k of chain) {
+      const inflow = [...h.partnersOf(k)].reduce(
+        (sum, p) => sum + s.get(p)! * 0.999 * Math.min(1, 1 / Math.max(1, h.distinctPartners(p))),
+        0,
+      );
+      expect(s.get(k)!).toBeCloseTo(Math.min(1, inflow), 9);
+    }
+  });
+});

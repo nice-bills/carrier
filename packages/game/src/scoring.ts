@@ -96,6 +96,10 @@ export function validateRules(rules: ScoringRules): void {
   }
 }
 
+const TOLERANCE = 1e-12;
+/** Past this a factor is too close to 1 to settle in reasonable time; fail loudly. */
+const MAX_ROUNDS = 100_000;
+
 const cache = new WeakMap<
   EncounterHistory,
   { version: number; rules: ScoringRules; standing: Map<string, number> }
@@ -124,11 +128,15 @@ export function standings(
   }
 
   // Least fixed point, iterated up from "only seeds have standing". The map is
-  // monotone and (by validateRules) a contraction, so this converges; the
-  // iteration cap only guards against pathological float behaviour.
+  // monotone and (by validateRules) a contraction with factor c, so the error
+  // after n rounds is at most c^n; the round budget is derived from c so a
+  // factor close to 1 gets enough rounds rather than a silently wrong answer.
+  const c = (damping * capacity) / t;
+  const rounds = c <= 0 ? 2 : Math.min(MAX_ROUNDS, Math.ceil(Math.log(TOLERANCE) / Math.log(c)) + 2);
   let current = new Map<string, number>();
   for (const k of keys) current.set(k, history.isSeed(k) ? 1 : 0);
-  for (let round = 0; round < 500; round += 1) {
+  let converged = false;
+  for (let round = 0; round < rounds; round += 1) {
     const next = new Map<string, number>();
     let delta = 0;
     for (const k of keys) {
@@ -144,7 +152,13 @@ export function standings(
       next.set(k, value);
     }
     current = next;
-    if (delta < 1e-12) break;
+    if (delta < TOLERANCE) {
+      converged = true;
+      break;
+    }
+  }
+  if (!converged) {
+    throw new Error(`standing did not converge within ${rounds} rounds`);
   }
 
   cache.set(history, { version: history.version, rules, standing: current });

@@ -9,6 +9,7 @@ import {
   noteSigningPayload,
 } from "@carrier/protocol";
 import {
+  MAX_HOP_CLOCK_SKEW_SECONDS,
   MeshError,
   decodeOffer,
   encodeOffer,
@@ -35,7 +36,7 @@ export const noteKey = (b: Bundle) => hex(hashNote(b.note));
  * more than this. Hop times are still only attested by the two devices that
  * signed them; nothing on-chain checks them beyond a coarse bound.
  */
-export const CLOCK_SKEW_SECONDS = 60n * 60n;
+export const CLOCK_SKEW_SECONDS = MAX_HOP_CLOCK_SKEW_SECONDS;
 
 const eq = (a: Uint8Array, b: Uint8Array) =>
   a.length === b.length && a.every((x, i) => x === b[i]);

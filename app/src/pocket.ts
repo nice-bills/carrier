@@ -81,10 +81,9 @@ export class Pocket implements HandoffServer {
     this.onChange = fn;
   }
 
-  /** Bundles held, newest chain first. */
+  /** Bundles held: notes carried for others, then payments to this phone. */
   list(): Bundle[] {
-    return this.node
-      .digests()
+    return [...this.node.digests(), ...this.node.deliveries()]
       .map((d) => this.node.bundle(d))
       .filter((b): b is Bundle => b !== undefined);
   }

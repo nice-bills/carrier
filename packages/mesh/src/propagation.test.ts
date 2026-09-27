@@ -204,6 +204,12 @@ describe("framing from strangers", () => {
     expect(process.memoryUsage().heapUsed - before).toBeLessThan(50 * 1024 * 1024);
   });
 
+  it("refuses a reassembler limit that would make eviction spin", () => {
+    expect(() => new Reassembler(0)).toThrow(RangeError);
+    expect(() => new Reassembler(-1)).toThrow(RangeError);
+    expect(() => new Reassembler(1.5)).toThrow(RangeError);
+  });
+
   it("keeps transfers apart by digest", () => {
     const one = new Uint8Array(MTU + 10).fill(1);
     const two = new Uint8Array(MTU + 10).fill(2);
