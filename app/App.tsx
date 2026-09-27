@@ -7,7 +7,7 @@ import { useCarrier } from "./src/useCarrier";
 import type { Services } from "./src/services/types";
 import { C } from "./src/theme";
 import { Button, MotionOverride, type } from "./src/ui/kit";
-import { Moment, TabBar, Toast, type Tab } from "./src/ui/chrome";
+import { DockRoom, Moment, TabBar, Toast, type Tab } from "./src/ui/chrome";
 import { Onboarding } from "./src/screens/Onboarding";
 import { CarryScreen } from "./src/screens/Carry";
 import { AroundScreen } from "./src/screens/Around";
@@ -65,6 +65,8 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
   const [legal, setLegal] = useState<"terms" | "privacy" | null>(null);
   const [seen, setSeen] = useState({ around: 0, carry: 0 });
   const [staged, setStaged] = useState(false);
+  // Height of the current screen's bottom buttons; toasts sit above them.
+  const [dockH, setDockH] = useState(0);
   const [rankUp, setRankUp] = useState<string | null>(demo?.rankUp ?? null);
   const lastRank = useRef<string | null>(null);
 
@@ -159,15 +161,17 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
 
   if (c.boot.state === "onboarding") {
     return (
-      <SafeAreaView style={styles.screen}>
-        <View style={styles.inset}>
-          <Onboarding c={c} step={step} setStep={setStep} onLegal={setLegal} />
-        </View>
-        {c.toast ? <Toast key={c.toast.id} text={c.toast.text} onDone={c.dismissToast} /> : null}
-        {legalSheet}
-        {rankSheet}
-        <StatusBar style="dark" />
-      </SafeAreaView>
+      <DockRoom.Provider value={setDockH}>
+        <SafeAreaView style={styles.screen}>
+          <View style={styles.inset}>
+            <Onboarding c={c} step={step} setStep={setStep} onLegal={setLegal} />
+          </View>
+          {c.toast ? <Toast key={c.toast.id} text={c.toast.text} onDone={c.dismissToast} above={dockH} /> : null}
+          {legalSheet}
+          {rankSheet}
+          <StatusBar style="dark" />
+        </SafeAreaView>
+      </DockRoom.Provider>
     );
   }
 
@@ -178,71 +182,73 @@ function Root({ services, demo }: { services: Services; demo?: DemoScript }) {
   };
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <View style={[{ flex: 1 }, styles.inset]}>
-        {tab === "carry" ? (
-          <CarryScreen
+    <DockRoom.Provider value={setDockH}>
+      <SafeAreaView style={styles.screen}>
+        <View style={[{ flex: 1 }, styles.inset]}>
+          {tab === "carry" ? (
+            <CarryScreen
+              c={c}
+              cursor={cursor}
+              setCursor={setCursor}
+              selected={selected}
+              setSelected={setSelected}
+              onPass={(bundle, peer) => setPassing({ bundle, peer })}
+              onPay={(to) => setPaying({ to: to ?? null })}
+              onSeeAll={() => goTab("around")}
+              forceTarget={demo?.dragOver ?? null}
+            />
+          ) : tab === "around" ? (
+            <AroundScreen
+              c={c}
+              onPick={(k) => {
+                setSelected(k);
+                goTab("carry");
+              }}
+            />
+          ) : (
+            <YouScreen c={c} onSetup={() => setPouchOpen(true)} onLegal={setLegal} />
+          )}
+          {c.moment ? <Moment key={c.moment.id} text={c.moment.text} onDone={c.dismissMoment} /> : null}
+          {c.toast ? <Toast key={c.toast.id} text={c.toast.text} onDone={c.dismissToast} above={dockH} /> : null}
+        </View>
+        <TabBar tab={tab} onTab={goTab} badges={badges} />
+
+        <PassSheet c={c} bundle={passing?.bundle ?? null} peer={passing?.peer ?? null} onClose={() => setPassing(null)} />
+        {ready ? (
+          <PaySheet
             c={c}
-            cursor={cursor}
-            setCursor={setCursor}
-            selected={selected}
-            setSelected={setSelected}
-            onPass={(bundle, peer) => setPassing({ bundle, peer })}
-            onPay={(to) => setPaying({ to: to ?? null })}
-            onSeeAll={() => goTab("around")}
-            forceTarget={demo?.dragOver ?? null}
-          />
-        ) : tab === "around" ? (
-          <AroundScreen
-            c={c}
-            onPick={(k) => {
-              setSelected(k);
-              goTab("carry");
+            visible={!!paying}
+            initialTo={paying?.to ?? null}
+            initialStep={demo?.sheet === "pay" ? demo.payStep : undefined}
+            initialAmount={demo?.sheet === "pay" ? demo.payAmount : undefined}
+            onClose={() => setPaying(null)}
+            onSetup={() => {
+              setTab("you");
+              setPouchOpen(true);
             }}
           />
-        ) : (
-          <YouScreen c={c} onSetup={() => setPouchOpen(true)} onLegal={setLegal} />
-        )}
-        {c.moment ? <Moment key={c.moment.id} text={c.moment.text} onDone={c.dismissMoment} /> : null}
-        {c.toast ? <Toast key={c.toast.id} text={c.toast.text} onDone={c.dismissToast} /> : null}
-      </View>
-      <TabBar tab={tab} onTab={goTab} badges={badges} />
-
-      <PassSheet c={c} bundle={passing?.bundle ?? null} peer={passing?.peer ?? null} onClose={() => setPassing(null)} />
-      {ready ? (
-        <PaySheet
+        ) : null}
+        <ReceiptSheet c={c} receipt={c.receipt} onClose={c.closeReceipt} />
+        <PouchSheet c={c} visible={pouchOpen} onClose={() => setPouchOpen(false)} />
+        <HandFailedSheet
           c={c}
-          visible={!!paying}
-          initialTo={paying?.to ?? null}
-          initialStep={demo?.sheet === "pay" ? demo.payStep : undefined}
-          initialAmount={demo?.sheet === "pay" ? demo.payAmount : undefined}
-          onClose={() => setPaying(null)}
-          onSetup={() => {
-            setTab("you");
-            setPouchOpen(true);
+          onRetry={() => {
+            const f = c.handFailed;
+            if (!f) return;
+            c.clearHandFailed();
+            c.pass(f.noteHash, f.peer);
+          }}
+          onPickElse={() => {
+            c.clearHandFailed();
+            setSelected(null);
+            goTab("carry");
           }}
         />
-      ) : null}
-      <ReceiptSheet c={c} receipt={c.receipt} onClose={c.closeReceipt} />
-      <PouchSheet c={c} visible={pouchOpen} onClose={() => setPouchOpen(false)} />
-      <HandFailedSheet
-        c={c}
-        onRetry={() => {
-          const f = c.handFailed;
-          if (!f) return;
-          c.clearHandFailed();
-          c.pass(f.noteHash, f.peer);
-        }}
-        onPickElse={() => {
-          c.clearHandFailed();
-          setSelected(null);
-          goTab("carry");
-        }}
-      />
-      {legalSheet}
-      {rankSheet}
-      <StatusBar style="dark" />
-    </SafeAreaView>
+        {legalSheet}
+        {rankSheet}
+        <StatusBar style="dark" />
+      </SafeAreaView>
+    </DockRoom.Provider>
   );
 }
 

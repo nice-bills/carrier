@@ -20,6 +20,7 @@ import {
   type,
   useReducedMotion,
 } from "../ui/kit";
+import { useDock } from "../ui/chrome";
 import type { Carrier } from "../useCarrier";
 import { PeopleEmpty, PersonRow } from "./People";
 import { radioLine } from "./radioLine";
@@ -45,6 +46,7 @@ export function Onboarding({
   setStep: (n: number) => void;
   onLegal: (which: "terms" | "privacy") => void;
 }) {
+  const onDock = useDock();
   const [perm, setPerm] = useState<Perm>("unset");
   const [making, setMaking] = useState(false);
   const [signed, setSigned] = useState(false);
@@ -124,7 +126,7 @@ export function Onboarding({
         {step === 4 ? <FirstHandoff c={c} /> : null}
       </ScrollView>
 
-      <View style={s.dock}>
+      <View style={s.dock} onLayout={onDock}>
         <Button label={primary.label} busy={"busy" in primary ? primary.busy : false} disabled={"disabled" in primary ? primary.disabled : false} onPress={next} />
         {step === 1 && perm === "unset" ? (
           <Button

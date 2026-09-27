@@ -7,6 +7,7 @@ import { shorten } from "../format";
 import { C, R, S, SHADOW } from "../theme";
 import { FONT } from "../ui/fonts";
 import { Appear, Button, Card, Coach, Head, LiveDot, PillButton, Plus, ScreenHead, buzz, spring, useReducedMotion } from "../ui/kit";
+import { useDock } from "../ui/chrome";
 import type { Carrier } from "../useCarrier";
 import { FeedRow, PeopleEmpty, PersonRow, type PersonInfo } from "./People";
 import { SlipView, slipFacts, slipLabel } from "./Slip";
@@ -44,6 +45,7 @@ export function CarryScreen({
   /** Demo only: draw this person as the drop target, slip lifted. */
   forceTarget?: string | null;
 }) {
+  const onDock = useDock();
   const reduced = useReducedMotion();
   const pocket = c.pocket!;
   const me = pocket.me;
@@ -391,7 +393,7 @@ export function CarryScreen({
           {!pocket.feed.length ? <Text style={s.quiet}>Nothing has happened on this phone yet.</Text> : null}
         </Card>
       </ScrollView>
-      <View style={s.dock}>
+      <View style={s.dock} onLayout={onDock}>
         <Button label={primary.spoken ?? primary.label} hint={primary.hint} onPress={primary.onPress} disabled={primary.disabled}>
           {primary.label}
         </Button>

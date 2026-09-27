@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { Animated, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
 import { C, R, SHADOW } from "../theme";
 import { FONT } from "./fonts";
 import { ease, spring, useReducedMotion } from "./kit";
@@ -105,11 +105,22 @@ const tb = StyleSheet.create({
   badge: { position: "absolute", top: 10, left: "60%", width: 9, height: 9, borderRadius: 5, backgroundColor: C.slipDeep, borderWidth: 2, borderColor: C.card },
 });
 
+/** Where a screen's bottom buttons end, so a toast can sit above them. */
+export const DockRoom = createContext<(height: number) => void>(() => {});
+
+/** Put on a screen's bottom button area: toasts then sit above it, not over it. */
+export function useDock() {
+  const report = useContext(DockRoom);
+  useEffect(() => () => report(0), [report]);
+  return (e: LayoutChangeEvent) => report(e.nativeEvent.layout.height);
+}
+
 /**
- * A short line of news, sitting just above the tab bar so it never covers the
- * top of a list. Slides up, goes away on its own or on tap.
+ * A short line of news, sitting just above the screen's bottom buttons so it
+ * never covers the top of a list or the button you need next. Slides up, goes
+ * away on its own or on tap.
  */
-export function Toast({ text, onDone }: { text: string; onDone: () => void }) {
+export function Toast({ text, onDone, above = 0 }: { text: string; onDone: () => void; above?: number }) {
   const reduced = useReducedMotion();
   const p = useRef(new Animated.Value(reduced ? 1 : 0)).current;
   useEffect(() => {
@@ -119,7 +130,7 @@ export function Toast({ text, onDone }: { text: string; onDone: () => void }) {
   }, [text, onDone, p, reduced]);
   return (
     <Animated.View
-      style={[to.wrap, { opacity: p, transform: [{ translateY: p.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }] }]}
+      style={[to.wrap, { bottom: above + 12, opacity: p, transform: [{ translateY: p.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }] }]}
     >
       <Pressable onPress={onDone} style={to.box} accessibilityRole="alert" accessibilityLabel={text} accessibilityHint="Dismisses this message">
         <Text style={to.text}>{text}</Text>
