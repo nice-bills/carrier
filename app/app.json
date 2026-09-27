@@ -57,6 +57,14 @@
           "locationAlwaysAndWhenInUsePermission": false,
           "locationAlwaysPermission": false
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Carrier uses the camera to scan payment codes from a phone next to you. Nothing is recorded or sent anywhere.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
       ]
     ]
   }

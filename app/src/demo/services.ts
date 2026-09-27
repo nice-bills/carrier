@@ -9,6 +9,7 @@ import { firstFreeSlot, type CachedPouch } from "../ledger";
 import { Pocket, memoryStore, nowSeconds } from "../pocket";
 import type { AppWallet, ChainService, Radio, RadioEvents, Services } from "../services/types";
 import { cast } from "./cast";
+import { SlipReader, keyCode, receiptCode, slipCodes } from "../qr/codec";
 import { demoLocation, places, seededRoutes, trailOf } from "./places";
 
 /**
@@ -118,7 +119,9 @@ function linkTo(server: Pocket, client: PublicKey): Transport {
     peers: async () => [],
     digests: async () => server.digestsFor(client),
     request: async (_peer, hash) => server.offerFor(hash, client),
-    acknowledge: async (_peer, hash, sig) => server.acknowledged(client, hash, sig),
+    acknowledge: async (_peer, hash, sig) => {
+      server.acknowledged(client, hash, sig);
+    },
     stop: async () => {},
   };
 }
@@ -291,5 +294,26 @@ export function demoServices(opts: DemoOptions = {}): Services {
     openSettings: () => {},
     openUrl: () => {},
     share: async () => {},
+    // The QR handoff in the preview: Mei holds up her phone.
+    async scanFeed(want, shown) {
+      const mei = remotes?.find((r) => r.key === cast.mei);
+      if (!mei) return [];
+      if (want === "key") return [keyCode(cast.mei.publicKey)];
+      if (want === "slip") {
+        const hash = mei.pocket.list().map((b) => hex(hashNote(b.note))).find((h) => !mei.pocket.node.isForMe(h));
+        if (!hash) return [];
+        return slipCodes(cast.mei.publicKey, mei.pocket.qrOffer(hash, cast.me.publicKey));
+      }
+      // Mei scans the slip this phone shows, takes it, and shows her receipt.
+      const reader = new SlipReader();
+      let done = null;
+      for (const code of shown ?? []) {
+        const got = reader.add(code);
+        if (got?.kind === "done") done = got;
+      }
+      if (!done) return [];
+      const { bundle, receipt } = await mei.pocket.qrTake(done.offer, done.giver);
+      return [receiptCode(hex(hashNote(bundle.note)), cast.mei.publicKey, receipt)];
+    },
   };
 }
