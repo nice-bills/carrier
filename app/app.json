@@ -4,11 +4,16 @@
     "slug": "carrier",
     "version": "0.1.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
     "platforms": ["android"],
     "android": {
       "package": "xyz.carrier.mesh",
       "permissions": [
+        "ACCESS_WIFI_STATE",
+        "CHANGE_WIFI_STATE",
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
         "BLUETOOTH_ADVERTISE",
         "BLUETOOTH_CONNECT",
         "BLUETOOTH_SCAN",
@@ -17,6 +22,6 @@
         "NEARBY_WIFI_DEVICES"
       ]
     },
-    "plugins": ["expo-secure-store"]
+    "plugins": ["expo-secure-store", "expo-nearby-connections"]
   }
 }

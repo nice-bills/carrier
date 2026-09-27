@@ -9,6 +9,9 @@ export {
   handoffValue,
   scoreLineages,
   splitBounty,
+  standings,
+  standingOf,
+  validateRules,
   type Award,
   type ScoringRules,
 } from "./scoring.js";

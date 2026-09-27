@@ -9,6 +9,7 @@ use anchor_lang::prelude::*;
 pub mod ed25519;
 pub mod errors;
 pub mod instructions;
+pub mod rules;
 pub mod state;
 
 use instructions::*;
@@ -25,9 +26,20 @@ pub mod carrier {
         instructions::open_pouch(ctx, amount, bond)
     }
 
-    /// Add funds and start a new epoch, freeing all 256 note slots.
-    pub fn refill_pouch(ctx: Context<RefillPouch>, amount: u64) -> Result<()> {
+    /// Add spendable funds. Does not change the epoch.
+    pub fn refill_pouch(ctx: Context<FundPouch>, amount: u64) -> Result<()> {
         instructions::refill_pouch(ctx, amount)
+    }
+
+    /// Add to the slashable bond.
+    pub fn add_bond(ctx: Context<FundPouch>, amount: u64) -> Result<()> {
+        instructions::add_bond(ctx, amount)
+    }
+
+    /// Start a new epoch, freeing all 256 note slots. Only after the current
+    /// epoch has closed and its slashing grace period has passed.
+    pub fn advance_epoch(ctx: Context<AdvanceEpoch>) -> Result<()> {
+        instructions::advance_epoch(ctx)
     }
 
     /// Settle one offline note and pay everyone who carried it.
@@ -64,12 +76,19 @@ pub mod carrier {
         instructions::abandon_settlement(ctx)
     }
 
-    /// Recover the unspent balance and bond once the epoch can no longer settle.
+    /// Let anyone close a draft whose note has expired. Rent goes to its settler.
+    pub fn close_expired_draft(ctx: Context<CloseExpiredDraft>) -> Result<()> {
+        instructions::close_expired_draft(ctx)
+    }
+
+    /// Recover the unspent balance and bond once the epoch can no longer settle
+    /// and the slashing grace period has passed.
     pub fn close_pouch(ctx: Context<ClosePouch>) -> Result<()> {
         instructions::close_pouch(ctx)
     }
 
-    /// Slash the bond of a sender who signed two notes against the same slot.
+    /// Pay the holder of a note that lost its slot from the sender's bond.
+    /// `note_a` settled; `note_b` lost.
     pub fn prove_double_spend(
         ctx: Context<ProveDoubleSpend>,
         note_a: Note,

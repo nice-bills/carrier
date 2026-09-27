@@ -4,6 +4,7 @@ export {
   SLOTS_PER_EPOCH,
   MAX_HOPS,
   MAX_CHAIN,
+  MAX_NOTE_LIFETIME_SECONDS,
   encodeNote,
   encodeHop,
   hashNote,

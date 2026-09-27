@@ -21,16 +21,31 @@ const KEY = "carrier.device.secret";
 export class DeviceWallet implements Signer {
   private constructor(private readonly keypair: Keypair) {}
 
+  /**
+   * Load the device key, creating one only when the keystore genuinely has
+   * none. A keystore error or a corrupt entry throws `WalletError` instead:
+   * silently minting a fresh identity would orphan every hop and note signed
+   * with the old one, and the user would never know why their share vanished.
+   */
   static async load(): Promise<DeviceWallet> {
-    const stored = await SecureStore.getItemAsync(KEY);
-    if (stored) {
-      const secret = Uint8Array.from(JSON.parse(stored));
-      return new DeviceWallet(Keypair.fromSecretKey(secret));
+    let stored: string | null;
+    try {
+      stored = await SecureStore.getItemAsync(KEY);
+    } catch (e) {
+      throw new WalletError("keystore-unavailable", "The phone's keystore could not be read", e);
     }
 
-    const fresh = Keypair.generate();
-    await SecureStore.setItemAsync(KEY, JSON.stringify([...fresh.secretKey]));
-    return new DeviceWallet(fresh);
+    if (stored === null) {
+      const fresh = Keypair.generate();
+      try {
+        await SecureStore.setItemAsync(KEY, JSON.stringify([...fresh.secretKey]));
+      } catch (e) {
+        throw new WalletError("keystore-unavailable", "The phone's keystore refused the new key", e);
+      }
+      return new DeviceWallet(fresh);
+    }
+
+    return new DeviceWallet(parseStoredKey(stored));
   }
 
   get publicKey() {
@@ -52,3 +67,39 @@ export const shorten = (key: { toBase58(): string }) => {
   const s = key.toBase58();
   return `${s.slice(0, 4)}…${s.slice(-4)}`;
 };
+
+export type WalletErrorCode = "keystore-unavailable" | "corrupt-key";
+
+export class WalletError extends Error {
+  constructor(
+    readonly code: WalletErrorCode,
+    message: string,
+    readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "WalletError";
+  }
+}
+
+/** Parse the stored secret, refusing anything that is not exactly a 64-byte key. */
+export function parseStoredKey(stored: string): Keypair {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch (e) {
+    throw new WalletError("corrupt-key", "The stored device key is not valid JSON", e);
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length !== 64 ||
+    !parsed.every((b) => Number.isInteger(b) && b >= 0 && b <= 255)
+  ) {
+    throw new WalletError("corrupt-key", "The stored device key has the wrong shape");
+  }
+  try {
+    // fromSecretKey checks that the public half matches the private half.
+    return Keypair.fromSecretKey(Uint8Array.from(parsed as number[]));
+  } catch (e) {
+    throw new WalletError("corrupt-key", "The stored device key does not verify", e);
+  }
+}

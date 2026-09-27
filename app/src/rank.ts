@@ -9,7 +9,13 @@
  *
  * The names are an epidemic on purpose. You are not levelling up an account,
  * you are becoming more infectious.
+ *
+ * Colours are theme tokens chosen to read at 4.5:1 or better on paper, and
+ * the rank name is always shown in text beside them: colour is never the only
+ * signal.
  */
+
+import { C } from "./theme";
 
 export interface Rank {
   /** Distinct people required to hold this rank. */
@@ -19,11 +25,11 @@ export interface Rank {
 }
 
 export const RANKS: readonly Rank[] = [
-  { at: 0, name: "Dormant", colour: "#5F736D" },
-  { at: 1, name: "Exposed", colour: "#8DA09A" },
-  { at: 3, name: "Carrier", colour: "#E4913C" },
-  { at: 6, name: "Vector", colour: "#3FBFA0" },
-  { at: 10, name: "Superspreader", colour: "#E6EDEA" },
+  { at: 0, name: "Dormant", colour: C.ink3 },
+  { at: 1, name: "Exposed", colour: C.denim },
+  { at: 3, name: "Carrier", colour: C.stampInk },
+  { at: 6, name: "Vector", colour: C.paidInk },
+  { at: 10, name: "Superspreader", colour: C.ink },
 ];
 
 export interface RankState {
@@ -35,7 +41,11 @@ export interface RankState {
   caption: string;
 }
 
-export function rankFor(peopleMet: number): RankState {
+export function rankFor(peopleMetRaw: number): RankState {
+  // NaN, negatives and fractions would otherwise compare their way to the top
+  // rank or to a NaN progress bar. Anything that is not a count is zero.
+  const peopleMet =
+    Number.isFinite(peopleMetRaw) && peopleMetRaw > 0 ? Math.floor(peopleMetRaw) : 0;
   let current = RANKS[0]!;
   for (const rank of RANKS) {
     if (peopleMet >= rank.at) current = rank;

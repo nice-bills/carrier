@@ -23,13 +23,15 @@ BALANCE="$(solana balance -k "$KEYPAIR" -u "$RPC" | awk '{print $1}')"
 PROGRAM_BYTES="$(stat -c%s target/deploy/carrier.so 2>/dev/null || echo 0)"
 # An upgradeable deploy reserves twice the program size, at roughly 6960
 # lamports per byte for rent exemption.
-NEEDED="$(python3 -c "print(f'{($PROGRAM_BYTES*2)*6960/1e9:.2f}')")"
+# Values go to python as argv, never spliced into its source: CLI output is
+# data, not code.
+NEEDED="$(python3 -c 'import sys; print(f"{int(sys.argv[1])*2*6960/1e9:.2f}")' "$PROGRAM_BYTES")"
 
 say "Wallet"
 echo "  $ADDRESS"
 echo "  balance $BALANCE SOL, deploy needs about $NEEDED SOL"
 
-if python3 -c "import sys; sys.exit(0 if float('$BALANCE') < float('$NEEDED') else 1)"; then
+if python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) < float(sys.argv[2]) else 1)' "$BALANCE" "$NEEDED"; then
   cat >&2 <<EOF
 
 Not enough SOL on devnet.

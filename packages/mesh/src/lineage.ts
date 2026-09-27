@@ -136,8 +136,10 @@ export function generations(spread: Spread): Map<string, number> {
     queue.push(origin);
   }
 
-  while (queue.length > 0) {
-    const key = queue.shift()!;
+  // A read index rather than `queue.shift()`, which is O(n) per call and makes
+  // the walk quadratic on a large spread.
+  for (let head = 0; head < queue.length; head += 1) {
+    const key = queue[head]!;
     const here = depth.get(key)!;
     for (const next of outgoing.get(key) ?? []) {
       if (depth.has(next)) continue; // already reached by a shorter route

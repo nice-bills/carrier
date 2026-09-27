@@ -5,23 +5,29 @@ import {
   handoffValue,
   scoreLineages,
   splitBounty,
+  standingOf,
+  standings,
+  type ScoringRules,
 } from "./scoring.js";
 
 /**
  * The scoring rule is the anti-sybil measure, so these tests are the security
- * argument rather than arithmetic checks. The one that matters is the last
- * group: a person with two phones has to earn approximately nothing.
+ * argument rather than arithmetic checks. The ones that matter are the attack
+ * groups: keys that only ever met each other have to earn nothing.
  */
 
-/** Give keys enough of a social record that standing is not the binding term. */
+/** Keys with full standing: seeds, i.e. anchored to something that costs money. */
 function established(...keys: string[]): EncounterHistory {
-  const h = new EncounterHistory();
-  for (const key of keys) {
-    for (let i = 0; i < DEFAULT_RULES.standingThreshold; i += 1) {
-      h.record(key, `witness-${key}-${i}`);
-    }
-  }
-  return h;
+  return new EncounterHistory(keys);
+}
+
+const total = (awards: { points: number }[]) => awards.reduce((n, a) => n + a.points, 0);
+
+/** Every ordered pair of distinct keys, as one-hop lineages. */
+function allPairs(keys: string[]): string[][] {
+  const out: string[][] = [];
+  for (const a of keys) for (const b of keys) if (a !== b) out.push([a, b]);
+  return out;
 }
 
 describe("handoff value", () => {
@@ -58,10 +64,15 @@ describe("handoff value", () => {
     // out of a drawer a minute ago.
     expect(handoffValue("known", "stranger", history)).toBe(0);
 
+    // Meeting another nobody changes nothing: standing is conferred, not counted.
     history.record("stranger", "someone");
-    const oneFriend = handoffValue("known", "stranger", history);
-    expect(oneFriend).toBeGreaterThan(0);
-    expect(oneFriend).toBeLessThan(DEFAULT_RULES.basePoints);
+    expect(handoffValue("known", "stranger", history)).toBe(0);
+
+    // Meeting someone with standing does.
+    history.record("stranger", "known");
+    const vouched = handoffValue("known", "stranger", history);
+    expect(vouched).toBeGreaterThan(0);
+    expect(vouched).toBeLessThan(DEFAULT_RULES.basePoints);
   });
 });
 
@@ -112,78 +123,124 @@ describe("scoring lineages", () => {
   });
 });
 
-describe("the two-phone attack", () => {
-  it("earns approximately nothing", () => {
-    // One person, two phones, bouncing a note between them all afternoon.
+describe("standing", () => {
+  it("is 1 at a seed and 0 for a key with no path to one", () => {
+    const h = new EncounterHistory(["seed"]);
+    h.record("x", "y");
+    expect(standingOf("seed", h)).toBe(1);
+    expect(standingOf("x", h)).toBe(0);
+    expect(standingOf("never-seen", h)).toBe(0);
+  });
+
+  it("rises as a key meets more people who have it", () => {
+    const h = new EncounterHistory(["s1", "s2", "s3", "s4", "s5"]);
+    h.record("newcomer", "s1");
+    const one = standingOf("newcomer", h);
+    h.record("newcomer", "s2");
+    h.record("newcomer", "s3");
+    const three = standingOf("newcomer", h);
+    h.record("newcomer", "s4");
+    h.record("newcomer", "s5");
+    const five = standingOf("newcomer", h);
+    expect(one).toBeGreaterThan(0);
+    expect(three).toBeGreaterThan(one);
+    expect(five).toBe(1);
+  });
+
+  it("does not let one key vouch for unlimited others", () => {
+    const h = new EncounterHistory(["seed"]);
+    const met = Array.from({ length: 30 }, (_, i) => `k${i}`);
+    for (const k of met) h.record("seed", k);
+    const conferred = met.reduce((n, k) => n + standingOf(k, h), 0);
+    // A seed passes on at most damping × vouchCapacity / T of standing in all.
+    const cap =
+      (DEFAULT_RULES.damping! * DEFAULT_RULES.vouchCapacity!) / DEFAULT_RULES.standingThreshold;
+    expect(conferred).toBeLessThanOrEqual(cap + 1e-9);
+  });
+});
+
+describe("sybil attacks", () => {
+  it("two phones bouncing a note earn nothing", () => {
     const attacker = Array.from({ length: 20 }, () => ["phone1", "phone2"]);
-    const attackerAwards = scoreLineages(attacker, new EncounterHistory());
-    const attackerTotal = attackerAwards.reduce((n, a) => n + a.points, 0);
+    const awards = scoreLineages(attacker, new EncounterHistory(["ada", "grace"]));
+    expect(total(awards)).toBe(0);
 
-    // Two real people who each know other people, meeting twice.
-    const honest = new EncounterHistory();
-    for (const key of ["ada", "grace"]) {
-      for (let i = 0; i < DEFAULT_RULES.standingThreshold; i += 1) {
-        honest.record(key, `friend-${key}-${i}`);
-      }
-    }
-    const honestAwards = scoreLineages([["ada", "grace"]], honest);
-    const honestTotal = honestAwards.reduce((n, a) => n + a.points, 0);
-
-    // Twenty fake handoffs are worth less than a single honest one, and the
-    // attacker paid a transaction fee for every one of them.
-    //
-    // Not zero, and it is worth being exact about why. Two phones meeting each
-    // other do give each other one distinct partner, which is a third of the
-    // standing threshold — so they crawl up to a third of standing and no
-    // further, while novelty decays as 1/n. The series converges: twenty
-    // handoffs buy about 0.87 of one genuine encounter, and the next twenty buy
-    // far less than that.
-    expect(attackerTotal).toBeLessThan(honestTotal);
-    expect(attackerTotal / honestTotal).toBeLessThan(1);
-
-    // Doubling the effort does not come close to doubling the take.
-    const twiceAsHard = scoreLineages(
-      Array.from({ length: 40 }, () => ["phone1", "phone2"]),
-      new EncounterHistory(),
-    ).reduce((n, a) => n + a.points, 0);
-    expect(twiceAsHard).toBeLessThan(attackerTotal * 1.3);
+    // Two real people meeting once are worth the full base.
+    const honest = scoreLineages([["ada", "grace"]], new EncounterHistory(["ada", "grace"]));
+    expect(total(honest)).toBe(DEFAULT_RULES.basePoints);
   });
 
-  it("does not let an attacker buy standing with more of their own phones", () => {
-    // Six phones, all in one pocket, meeting only each other.
-    const phones = ["p1", "p2", "p3", "p4", "p5", "p6"];
-    const lineages: string[][] = [];
-    for (const a of phones) {
-      for (const b of phones) {
-        if (a !== b) lineages.push([a, b]);
-      }
-    }
+  it("a ring of fresh keys scores ~0 however many keys it adds", () => {
+    // The audit's probe: a 5-key ring, then every key meeting every other, then
+    // new keys joining. Under distinct-partner counting this reached full
+    // standing and paid every new key full points. Now none of it has standing.
+    const seeds = ["s1", "s2", "s3", "s4", "s5", "s6"];
+    const history = new EncounterHistory(seeds);
+    // The honest world exists alongside, and is scored in the same history.
+    const honestAwards = scoreLineages(allPairs(seeds), history);
 
-    const history = new EncounterHistory();
-    const awards = scoreLineages(lineages, history);
-    const attackerTotal = awards.reduce((n, a) => n + a.points, 0);
+    const ring = Array.from({ length: 5 }, (_, i) => `ring${i}`);
+    const ringLineages = [
+      ...ring.map((k, i) => [k, ring[(i + 1) % ring.length]!]),
+      ...allPairs(ring),
+    ];
+    const joiners = Array.from({ length: 20 }, (_, i) => `fresh${i}`);
+    for (const j of joiners) for (const r of ring) ringLineages.push([r, j]);
 
-    // A clique does eventually build standing among itself — it cannot be
-    // stopped, only priced. What it cannot do is beat the same number of real
-    // encounters, because every repeat inside the clique decays.
-    const honest = new EncounterHistory();
-    const realPeople = ["a", "b", "c", "d", "e", "f"];
-    const realLineages: string[][] = [];
-    for (const a of realPeople) {
-      for (const b of realPeople) {
-        if (a !== b) realLineages.push([a, b]);
-      }
-    }
-    const honestTotal = scoreLineages(realLineages, honest).reduce(
-      (n, a) => n + a.points,
-      0,
-    );
+    const ringAwards = scoreLineages(ringLineages, history);
+    expect(total(ringAwards)).toBeLessThan(1e-9);
+    for (const k of [...ring, ...joiners]) expect(standingOf(k, history)).toBe(0);
 
-    // Same structure scores the same — so the clique's ceiling is exactly "as
-    // good as that many genuine people", never better. Buying more phones buys
-    // proportionally more cost, not more advantage.
-    expect(attackerTotal).toBeCloseTo(honestTotal, 6);
+    // And therefore the ring draws nothing from a bounty shared with honest play.
+    const split = splitBounty(1_000_000n, [...honestAwards, ...ringAwards].sort((a, b) => b.points - a.points));
+    for (const k of [...ring, ...joiners]) expect(split.get(k) ?? 0n).toBe(0n);
   });
+
+  it("a ring attached by one real encounter gains a bounded amount, not a key-count amount", () => {
+    const seeds = ["s1", "s2", "s3", "s4", "s5", "s6"];
+    const base = new EncounterHistory(seeds);
+    base.recordLineage(["s1", "s2", "s3", "s4", "s5", "s6", "s1"]);
+    // The attacker's main key genuinely meets one seed.
+    base.record("attacker", "s1");
+
+    const withRing = (size: number) => {
+      const h = new EncounterHistory(seeds);
+      h.recordLineage(["s1", "s2", "s3", "s4", "s5", "s6", "s1"]);
+      h.record("attacker", "s1");
+      const ring = ["attacker", ...Array.from({ length: size }, (_, i) => `sybil${i}`)];
+      for (const [a, b] of allPairs(ring)) h.record(a, b);
+      const all = standings(h);
+      return ring.reduce((n, k) => n + (all.get(k) ?? 0), 0);
+    };
+
+    const small = withRing(5);
+    const large = withRing(50);
+    // Total standing in the attacker's region is capped by what flows over the
+    // single attack edge, amplified by at most 1 / (1 − 0.8) — not by key count.
+    expect(large).toBeLessThan(small * 1.5);
+    expect(large).toBeLessThan(2);
+    // One seed's full vouching budget, amplified, is the ceiling.
+    expect(standingOf("attacker", base)).toBeLessThan(1);
+  });
+});
+
+describe("rules validation", () => {
+  const bad: [string, Partial<ScoringRules>][] = [
+    ["zero threshold", { standingThreshold: 0 }],
+    ["negative threshold", { standingThreshold: -1 }],
+    ["NaN threshold", { standingThreshold: Number.NaN }],
+    ["infinite threshold", { standingThreshold: Number.POSITIVE_INFINITY }],
+    ["NaN base points", { basePoints: Number.NaN }],
+    ["damping of 1", { damping: 1 }],
+    ["amplifying rules", { damping: 0.9, vouchCapacity: 10 }],
+  ];
+  for (const [name, override] of bad) {
+    it(`rejects ${name}`, () => {
+      const rules = { ...DEFAULT_RULES, ...override };
+      expect(() => scoreLineages([["a", "b"]], established("a", "b"), rules)).toThrow(RangeError);
+      expect(() => handoffValue("a", "b", established("a", "b"), rules)).toThrow(RangeError);
+    });
+  }
 });
 
 describe("splitting the bounty", () => {
@@ -211,10 +268,38 @@ describe("splitting the bounty", () => {
     expect([...split.values()].reduce((n, v) => n + v, 0n)).toBe(100n);
   });
 
+  it("rejects a negative bounty and non-finite points", () => {
+    expect(() => splitBounty(-1n, [{ key: "a", points: 1, handoffs: 1 }])).toThrow(RangeError);
+    expect(() => splitBounty(10n, [{ key: "a", points: Number.NaN, handoffs: 1 }])).toThrow(
+      RangeError,
+    );
+    expect(() => splitBounty(10n, [{ key: "a", points: -5, handoffs: 1 }])).toThrow(RangeError);
+  });
+
   it("pays nobody when nobody scored", () => {
     expect(splitBounty(1000n, []).size).toBe(0);
     expect(
       splitBounty(1000n, [{ key: "a", points: 0, handoffs: 0 }]).size,
     ).toBe(0);
+  });
+});
+
+describe("fixed-point convergence", () => {
+  it("still reaches the fixed point when the contraction factor is close to 1", () => {
+    const rules: ScoringRules = { ...DEFAULT_RULES, standingThreshold: 1, damping: 0.999, vouchCapacity: 1 };
+    const h = new EncounterHistory(["seed"]);
+    const chain = Array.from({ length: 30 }, (_, i) => `k${i}`);
+    h.record("seed", chain[0]!);
+    for (let i = 1; i < chain.length; i += 1) h.record(chain[i - 1]!, chain[i]!);
+
+    const s = standings(h, rules);
+    // At the fixed point, each key's standing is exactly its inflow over the threshold.
+    for (const k of chain) {
+      const inflow = [...h.partnersOf(k)].reduce(
+        (sum, p) => sum + s.get(p)! * 0.999 * Math.min(1, 1 / Math.max(1, h.distinctPartners(p))),
+        0,
+      );
+      expect(s.get(k)!).toBeCloseTo(Math.min(1, inflow), 9);
+    }
   });
 });

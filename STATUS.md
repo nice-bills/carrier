@@ -1,21 +1,38 @@
 # Where Carrier stands
 
-_Last updated: 2026-09-15_
+_Last updated: 2026-09-27 (after the 2026-09-27 audit fixes)_
 
-## Everything passes
+## What passes, and what has not been run
 
-| Suite | Command | Result |
+Numbers below are filled in from an actual run of each command on the date
+above. A cell reading `TBD` has not been run since the audit fixes and claims
+nothing.
+
+| Check | Command | Result |
 | --- | --- | --- |
-| Program units | `cargo test --manifest-path programs/carrier/Cargo.toml --lib` | 5/5 |
-| Protocol codec | `npx vitest run --root packages/protocol` | 8/8 |
-| Mesh | `npx vitest run --root packages/mesh` | 25/25 |
-| Game / scoring | `npx vitest run --root packages/game` | 17/17 |
-| Settlement (e2e, local validator) | `npx vitest run --root tests` | 9/9 |
-| **Settlement (e2e, devnet)** | `./scripts/devnet.sh` | **9/9** |
+| Install from lockfile | `npm ci` | passes |
+| Type-check (packages) | `npx tsc -p tsconfig.json` | clean |
+| Type-check (app) | `npx tsc -p app` | clean |
+| Program units | `cargo test --manifest-path programs/carrier/Cargo.toml --lib` | 18/18 |
+| Protocol codec | `npx vitest run --root packages/protocol` | 24/24 |
+| Mesh | `npx vitest run --root packages/mesh` | 51/51 |
+| Game / scoring | `npx vitest run --root packages/game` | 29/29 |
+| Settlement (e2e, local validator) | `./scripts/localnet.sh` | not run since the fixes (no validator in the audit environment); type-checks |
+| Settlement (e2e, devnet) | `./scripts/devnet.sh` | not run; the devnet deployment predates the fixes and must be redeployed |
+| Scripts lint | `bash -n scripts/*.sh && shellcheck scripts/*.sh` | clean |
+| **App on a phone** | two Android devices | **never run** |
 
-**64 tests.**
+The app type-checks and its transport was exercised against an in-memory fake
+of the radio library, but it has never been built or run on a device. See
+`app/README.md` for exactly what that leaves unknown. Settlement from the phone
+is not built.
 
 ## Live on devnet
+
+**Stale since the 2026-09-27 audit fixes.** The program at this address is the
+old build: it still has the bond, relay-fee and refill problems, and its pouch
+layout differs from the current code. Redeploy with `./scripts/devnet.sh`
+before pointing anyone at it.
 
 ```
 CJBPBb6WBPWptmpiW4Kdb7SeRC7Cmob5YAaBtKSMXBvt
@@ -147,19 +164,23 @@ These cost most of a day. Do not rediscover them during the event.
 
 ## Next
 
-Everything previously listed here is done. What remains is the part that needs
-hardware and a room full of people:
+What remains needs hardware and a room full of people:
 
-1. **Run the app on two Android phones.** `NearbyTransport` has never executed
-   on a device. Discovery timing, payload limits, permission flow, and what
-   happens when someone walks out of range mid-transfer are all unknown. Budget
-   a day, not an evening.
-2. **Rehearse the airplane-mode demo** until it is boring. Radio demos fail on
+1. **Build and run the app on two Android phones.** The Nearby transport now
+   targets the real `expo-nearby-connections` 1.x API, authenticates peers and
+   is wired to the mesh, but it has never executed on a device. The native
+   build (Expo 52 with a Nitro module the library lists for Expo 51 and 55),
+   discovery timing, payload limits, the permission flow, and what happens when
+   someone walks out of range mid-transfer are all unknown. Budget a day, not
+   an evening.
+2. **Settle from the phone**, or decide the demo settles from a laptop. The app
+   carries and delivers notes but submits nothing on-chain.
+3. **Rehearse the airplane-mode demo** until it is boring. Radio demos fail on
    stage; the only defence is repetition.
-3. **Draw the spread map.** `buildSpread`, `reproductionNumber`,
+4. **Draw the spread map.** `buildSpread`, `reproductionNumber`,
    `superspreaders` and `generations` turn settlement events into the picture —
    the rendering is all that is missing.
-4. **Decide payments or contagion for the pitch.** Both run on this engine
+5. **Decide payments or contagion for the pitch.** Both run on this engine
    unchanged; the difference is the story and the top screen.
 
 ## Positioning

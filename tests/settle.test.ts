@@ -14,12 +14,13 @@ import {
   createAssociatedTokenAccount,
   mintTo,
   getAccount,
-  getAssociatedTokenAddress,
+  getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import nacl from "tweetnacl";
 import { existsSync, readFileSync } from "node:fs";
 import {
+  MAX_HOPS,
   noteSigningPayload,
   hopSigningPayload,
   hashNote,
@@ -42,9 +43,12 @@ import {
 const PROGRAM_ID = new PublicKey("CJBPBb6WBPWptmpiW4Kdb7SeRC7Cmob5YAaBtKSMXBvt");
 const POUCH_SEED = Buffer.from("pouch");
 const VAULT_SEED = Buffer.from("vault");
+const DRAFT_SEED = Buffer.from("draft");
+const CLAIM_SEED = Buffer.from("claim");
 
 const DECIMALS = 6;
 const ONE_TOKEN = 10n ** BigInt(DECIMALS);
+const BOND = 50n * ONE_TOKEN;
 
 /** A device in the mesh: a keypair that signs bytes and never touches an RPC. */
 class Device {
@@ -84,6 +88,8 @@ describe("carrier settlement", () => {
 
   let pouch: PublicKey;
   let vault: PublicKey;
+  let epoch: number;
+  let senderAta: PublicKey;
   let recipientAta: PublicKey;
   let settlerAta: PublicKey;
   let relayerAAta: PublicKey;
@@ -128,15 +134,12 @@ describe("carrier settlement", () => {
 
     mint = await createMint(connection, payer, payer.publicKey, null, DECIMALS);
 
-    const ataFor = async (owner: PublicKey) =>
-      createAssociatedTokenAccount(connection, payer, mint, owner);
-
     recipientAta = await ataFor(recipient.publicKey);
     settlerAta = await ataFor(settler.publicKey);
     relayerAAta = await ataFor(relayerA.publicKey);
     relayerBAta = await ataFor(relayerB.publicKey);
 
-    const senderAta = await ataFor(sender.publicKey);
+    senderAta = await ataFor(sender.publicKey);
     await mintTo(connection, payer, mint, senderAta, payer, 1000n * ONE_TOKEN);
 
     [pouch] = PublicKey.findProgramAddressSync(
@@ -149,7 +152,7 @@ describe("carrier settlement", () => {
     );
 
     await program.methods
-      .openPouch(new BN(100n * ONE_TOKEN), new BN(50n * ONE_TOKEN))
+      .openPouch(new BN((100n * ONE_TOKEN).toString()), new BN(BOND.toString()))
       .accounts({
         owner: sender.publicKey,
         pouch,
@@ -162,8 +165,22 @@ describe("carrier settlement", () => {
       .signers([sender.keypair])
       .rpc();
 
+    // The first epoch is the time the pouch opened, so a reopened pouch never
+    // reuses an old epoch number.
+    epoch = (await pouchState()).epoch;
+    expect(epoch).toBeGreaterThan(1_600_000_000);
+
     lookupTable = await buildLookupTable();
   }, 120_000);
+
+  async function ataFor(owner: PublicKey): Promise<PublicKey> {
+    return createAssociatedTokenAccount(connection, payer, mint, owner);
+  }
+
+  /** Untyped: the program is built from a JSON IDL, not generated types. */
+  async function pouchState(): Promise<any> {
+    return (program.account as any).pouch.fetch(pouch);
+  }
 
   /**
    * Give the cast enough lamports to sign with.
@@ -198,7 +215,14 @@ describe("carrier settlement", () => {
     await provider.sendAndConfirm!(tx, [payer]);
   }
 
-  /** Put every account a settlement touches into one lookup table. */
+  /**
+   * The lookup table a real settler can count on.
+   *
+   * Only accounts that are the same for every note from this pouch: the pouch,
+   * its vault, the mint, and fixed program ids. The owner would publish this
+   * when opening the pouch. Recipient, relayer and settler accounts differ per
+   * payment, so they are not in it and cost 32 bytes each (audit M8).
+   */
   async function buildLookupTable(): Promise<anchor.web3.AddressLookupTableAccount> {
     const slot = await connection.getSlot("finalized");
     const [createIx, address] =
@@ -215,10 +239,6 @@ describe("carrier settlement", () => {
       addresses: [
         pouch,
         vault,
-        recipientAta,
-        settlerAta,
-        relayerAAta,
-        relayerBAta,
         mint,
         TOKEN_PROGRAM_ID,
         SYSVAR_INSTRUCTIONS_PUBKEY,
@@ -235,12 +255,59 @@ describe("carrier settlement", () => {
     // give it one block rather than racing the first settlement against it.
     const start = await connection.getSlot("confirmed");
     while ((await connection.getSlot("confirmed")) <= start + 1) {
-      await new Promise((r) => setTimeout(r, 200));
+      await sleep(200);
     }
 
     const fetched = await connection.getAddressLookupTable(address);
     if (!fetched.value) throw new Error("lookup table did not materialise");
     return fetched.value;
+  }
+
+  /** Accounts every `settle_note` call shares. */
+  function settleAccounts(recipientAccount = recipientAta) {
+    return {
+      settler: settler.publicKey,
+      pouch,
+      vault,
+      recipient: recipientAccount,
+      mint,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+    };
+  }
+
+  function writable(pubkeys: PublicKey[]) {
+    return pubkeys.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true }));
+  }
+
+  /** Settle a note in one transaction and wait for it. */
+  async function settle(
+    note: ReturnType<typeof buildNote>,
+    chain: Device[],
+    relayerAtas: PublicKey[],
+    recipientAccount = recipientAta,
+  ) {
+    const { hops, entries } = carry(note, chain);
+    const ix = await program.methods
+      .settleNote(noteArg(note), hops)
+      .accounts(settleAccounts(recipientAccount))
+      .remainingAccounts(writable(relayerAtas))
+      .instruction();
+    return sendSettled([createEd25519Instruction(entries), ix], [settler]);
+  }
+
+  function draftAddress(note: ReturnType<typeof buildNote>, by: PublicKey): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [DRAFT_SEED, pouch.toBuffer(), Buffer.from(hashNote(note)), by.toBuffer()],
+      PROGRAM_ID,
+    )[0];
+  }
+
+  function claimAddress(losing: ReturnType<typeof buildNote>): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [CLAIM_SEED, pouch.toBuffer(), Buffer.from(hashNote(losing))],
+      PROGRAM_ID,
+    )[0];
   }
 
   /**
@@ -252,23 +319,12 @@ describe("carrier settlement", () => {
    */
   it("settles a four-hop chain by accumulating verification", async () => {
     const chain = [new Device(), new Device(), new Device(), new Device()];
-    const atas = await Promise.all(
-      chain.map((d) => createAssociatedTokenAccount(connection, payer, mint, d.publicKey)),
-    );
+    const atas = await Promise.all(chain.map((d) => ataFor(d.publicKey)));
 
     const amount = 20n * ONE_TOKEN;
     const note = buildNote(88, amount, 400); // 4% split four ways
     const { entries, times: hopTimes } = carry(note, chain);
-
-    const [draft] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("draft"),
-        pouch.toBuffer(),
-        Buffer.from([note.slotIndex]),
-        Buffer.from(new Uint32Array([note.epoch]).buffer),
-      ],
-      PROGRAM_ID,
-    );
+    const draft = draftAddress(note, settler.publicKey);
 
     // 1. Prove the sender authorised the note. One signature.
     await program.methods
@@ -319,13 +375,10 @@ describe("carrier settlement", () => {
         draft,
         vault,
         recipient: recipientAta,
-        settlerPayout: settlerAta,
         mint,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
-      .remainingAccounts(
-        atas.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })),
-      )
+      .remainingAccounts(writable(atas))
       .signers([settler])
       .rpc();
 
@@ -340,7 +393,7 @@ describe("carrier settlement", () => {
     // The draft is gone and its rent returned.
     expect(await connection.getAccountInfo(draft)).toBeNull();
 
-    const state: any = await program.account.pouch.fetch(pouch);
+    const state = await pouchState();
     expect((state.spent[1].toNumber() >> (88 - 64)) & 1).toBe(1);
   }, 120_000);
 
@@ -362,7 +415,7 @@ describe("carrier settlement", () => {
     const claims: any[] = [];
     let prev: Device = sender;
     for (let seq = 0; seq < 2; seq += 1) {
-      const at = BigInt(Math.floor(Date.now() / 1000));
+      const at = nowSeconds();
       const hop = { noteHash, relayer: relayerA.publicKey, prev: prev.publicKey, seq, at };
       const message = hopSigningPayload(hop);
       entries.push(relayerA.entry(message), prev.entry(message));
@@ -372,20 +425,8 @@ describe("carrier settlement", () => {
 
     const ix = await program.methods
       .settleNote(noteArg(note), claims)
-      .accounts({
-        settler: settler.publicKey,
-        pouch,
-        vault,
-        recipient: recipientAta,
-        settlerPayout: settlerAta,
-        mint,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-      })
-      .remainingAccounts([
-        { pubkey: relayerAAta, isSigner: false, isWritable: true },
-        { pubkey: relayerAAta, isSigner: false, isWritable: true },
-      ])
+      .accounts(settleAccounts())
+      .remainingAccounts(writable([relayerAAta, relayerAAta]))
       .instruction();
 
     await expect(
@@ -396,7 +437,7 @@ describe("carrier settlement", () => {
   it("refuses to pay the sender as one of its own carriers", async () => {
     const note = buildNote(121, ONE_TOKEN);
     const noteHash = hashNote(note);
-    const at = BigInt(Math.floor(Date.now() / 1000));
+    const at = nowSeconds();
 
     // The sender hands to itself: a real co-signed hop, but the sender is a
     // party to the payment, not a carrier of it.
@@ -413,24 +454,12 @@ describe("carrier settlement", () => {
       sender.entry(message),
     ];
 
-    const senderAta = await getAssociatedTokenAddress(mint, sender.publicKey);
     const ix = await program.methods
       .settleNote(noteArg(note), [
         { relayer: sender.publicKey, at: new BN(at.toString()) },
       ])
-      .accounts({
-        settler: settler.publicKey,
-        pouch,
-        vault,
-        recipient: recipientAta,
-        settlerPayout: settlerAta,
-        mint,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-      })
-      .remainingAccounts([
-        { pubkey: senderAta, isSigner: false, isWritable: true },
-      ])
+      .accounts(settleAccounts())
+      .remainingAccounts(writable([senderAta]))
       .instruction();
 
     await expect(
@@ -446,39 +475,27 @@ describe("carrier settlement", () => {
    * mesh manufactures bundles that can never be redeemed and nobody finds out
    * until the money fails to arrive. So the limit is measured here rather than
    * asserted, and `MAX_HOPS` is set to what this prints.
+   *
+   * Measured the way a real settlement looks: every carrier has their own token
+   * account, and neither those nor the recipient's are in the lookup table.
+   * Only the pouch table is (see `buildLookupTable`).
    */
   it("measures the real hop ceiling inside one transaction", async () => {
     const sizes: string[] = [];
-    let ceiling = 0;
+    let ceiling = -1;
 
-    for (let hops = 1; hops <= 8; hops += 1) {
+    for (let hops = 0; hops <= 4; hops += 1) {
       const chain = Array.from({ length: hops }, () => new Device());
       const note = buildNote(200 + hops, ONE_TOKEN);
-      const { entries, times: hopTimes } = carry(note, chain);
-      const claims = chain.map((d) => ({
-        relayer: d.publicKey,
-        at: new BN(Math.floor(Date.now() / 1000)),
-      }));
+      const { hops: claims, entries } = carry(note, chain);
+      const relayerAtas = chain.map((d) =>
+        getAssociatedTokenAddressSync(mint, d.publicKey),
+      );
 
       const settleIx = await program.methods
         .settleNote(noteArg(note), claims)
-        .accounts({
-          settler: settler.publicKey,
-          pouch,
-          vault,
-          recipient: recipientAta,
-          settlerPayout: settlerAta,
-          mint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
-        .remainingAccounts(
-          chain.map(() => ({
-            pubkey: relayerAAta,
-            isSigner: false,
-            isWritable: true,
-          })),
-        )
+        .accounts(settleAccounts())
+        .remainingAccounts(writable(relayerAtas))
         .instruction();
 
       const message = new anchor.web3.TransactionMessage({
@@ -502,18 +519,24 @@ describe("carrier settlement", () => {
     console.log("\n  transaction size by chain length\n  " + sizes.join("\n  "));
     console.log(`\n  => single-transaction ceiling: ${ceiling} hops\n`);
 
-    expect(ceiling).toBeGreaterThanOrEqual(2);
+    expect(ceiling).toBeGreaterThanOrEqual(MAX_HOPS);
   }, 120_000);
 
   /** Build a note the way a phone would: offline, against a chosen slot. */
-  function buildNote(slotIndex: number, amount: bigint, relayFeeBps = 200) {
+  function buildNote(
+    slotIndex: number,
+    amount: bigint,
+    relayFeeBps = 200,
+    to: PublicKey = recipient.publicKey,
+    expiry = nowSeconds() + 24n * 60n * 60n,
+  ) {
     return {
       pouch,
-      to: recipient.publicKey,
+      to,
       amount,
       slotIndex,
-      epoch: 0,
-      expiry: BigInt(Math.floor(Date.now() / 1000) + 24 * 60 * 60),
+      epoch,
+      expiry,
       relayFeeBps,
     };
   }
@@ -545,7 +568,7 @@ describe("carrier settlement", () => {
 
     let prev = sender;
     chain.forEach((relayer, seq) => {
-      const at = BigInt(Math.floor(Date.now() / 1000));
+      const at = nowSeconds();
       times.push(at);
       const hop = {
         noteHash,
@@ -570,19 +593,31 @@ describe("carrier settlement", () => {
     return { hops, entries, times };
   }
 
+  function nowSeconds(): bigint {
+    return BigInt(Math.floor(Date.now() / 1000));
+  }
+
+  function sleep(ms: number) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
   async function balance(ata: PublicKey): Promise<bigint> {
     return (await getAccount(connection, ata)).amount;
+  }
+
+  /** The validator's clock, which is what `Clock::unix_timestamp` reads. */
+  async function chainTime(): Promise<bigint> {
+    const slot = await connection.getSlot("confirmed");
+    const time = await connection.getBlockTime(slot);
+    return BigInt(time ?? Math.floor(Date.now() / 1000));
   }
 
   /**
    * Send a settlement as a versioned transaction through the lookup table.
    *
-   * A legacy transaction spends 32 bytes on every account key, and settling a
-   * two-hop note touches twelve accounts — 384 bytes of the 1232 budget, on top
-   * of the signatures the precompile needs. A lookup table turns each of those
-   * into a one-byte index, which is the difference between settling a two-hop
-   * chain and not. Real clients would keep one warm table per deployment; the
-   * test builds one because it starts from an empty validator.
+   * A legacy transaction spends 32 bytes on every account key. A lookup table
+   * turns the ones shared by every note from this pouch into one-byte indexes,
+   * which is the difference between settling a two-hop chain and not.
    */
   async function sendSettled(
     instructions: anchor.web3.TransactionInstruction[],
@@ -598,43 +633,30 @@ describe("carrier settlement", () => {
     tx.sign(signers);
     const sig = await connection.sendTransaction(tx);
     const bh = await connection.getLatestBlockhash();
-    await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
+    const result = await connection.confirmTransaction(
+      { signature: sig, ...bh },
+      "confirmed",
+    );
+    // Preflight catches most failures, but a transaction can still land and
+    // fail. Confirmation reports that in `err` rather than throwing.
+    if (result.value.err) {
+      throw new Error(`transaction ${sig} failed: ${JSON.stringify(result.value.err)}`);
+    }
     return sig;
   }
 
   it("settles a note that crossed two strangers with no connectivity", async () => {
     const amount = 10n * ONE_TOKEN;
     const note = buildNote(7, amount, 200); // 2% to the carriers
-    const { hops, entries } = carry(note, [relayerA, relayerB]);
 
-    const settledBefore = BigInt(
-      ((await program.account.pouch.fetch(pouch)) as any).settled.toString(),
-    );
+    const settledBefore = BigInt((await pouchState()).settled.toString());
     const before = {
       recipient: await balance(recipientAta),
       relayerA: await balance(relayerAAta),
       relayerB: await balance(relayerBAta),
     };
 
-    const settleIx = await program.methods
-      .settleNote(noteArg(note), hops)
-      .accounts({
-        settler: settler.publicKey,
-        pouch,
-        vault,
-        recipient: recipientAta,
-        settlerPayout: settlerAta,
-        mint,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-      })
-      .remainingAccounts([
-        { pubkey: relayerAAta, isSigner: false, isWritable: true },
-        { pubkey: relayerBAta, isSigner: false, isWritable: true },
-      ])
-      .instruction();
-
-    await sendSettled([createEd25519Instruction(entries), settleIx], [settler]);
+    await settle(note, [relayerA, relayerB], [relayerAAta, relayerBAta]);
 
     const relayFee = (amount * 200n) / 10_000n;
     const perRelayer = relayFee / 2n;
@@ -645,37 +667,45 @@ describe("carrier settlement", () => {
     expect(await balance(relayerAAta)).toBe(before.relayerA + perRelayer);
     expect(await balance(relayerBAta)).toBe(before.relayerB + perRelayer);
 
-    const state: any = await program.account.pouch.fetch(pouch);
+    const state = await pouchState();
     // A delta, not an absolute: other tests in this file settle against the
-    // same pouch, so the running total is not this note's amount.
+    // same pouch, so the running total is not this note's amount. The fee
+    // splits evenly here, so all of it left the vault.
     expect(BigInt(state.settled.toString()) - settledBefore).toBe(amount);
     // Slot 7 lives in the first word of the bitmap.
     expect((state.spent[0].toNumber() >> 7) & 1).toBe(1);
   }, 60_000);
 
-  it("refuses to settle the same slot twice", async () => {
-    const note = buildNote(7, 5n * ONE_TOKEN);
-    const { hops, entries } = carry(note, [relayerA]);
+  /**
+   * Dropping every hop used to hand the settler the whole relay fee. Now the
+   * unearned fee stays in the vault, so there is nothing to gain by it.
+   */
+  it("pays no bounty when a note settles with no hops", async () => {
+    const amount = 5n * ONE_TOKEN;
+    const note = buildNote(8, amount, 200);
+    const relayFee = (amount * 200n) / 10_000n;
 
+    const settledBefore = BigInt((await pouchState()).settled.toString());
+    const recipientBefore = await balance(recipientAta);
+    const settlerBefore = await balance(settlerAta);
+    const vaultBefore = await balance(vault);
+
+    await settle(note, [], []);
+
+    expect(await balance(recipientAta)).toBe(recipientBefore + amount - relayFee);
+    expect(await balance(settlerAta)).toBe(settlerBefore);
+    // Only the recipient's share left. The fee is still the owner's.
+    expect(await balance(vault)).toBe(vaultBefore - (amount - relayFee));
+    const state = await pouchState();
+    expect(BigInt(state.settled.toString()) - settledBefore).toBe(amount - relayFee);
+  }, 60_000);
+
+  it("refuses to settle the same slot twice", async () => {
+    await settle(buildNote(12, ONE_TOKEN), [relayerA], [relayerAAta]);
+
+    const replay = buildNote(12, 5n * ONE_TOKEN);
     await expect(
-      program.methods
-        .settleNote(noteArg(note), hops)
-        .accounts({
-          settler: settler.publicKey,
-          pouch,
-          vault,
-          recipient: recipientAta,
-          settlerPayout: settlerAta,
-          mint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
-        .remainingAccounts([
-          { pubkey: relayerAAta, isSigner: false, isWritable: true },
-        ])
-        .preInstructions([createEd25519Instruction(entries)])
-        .signers([settler])
-        .rpc(),
+      settle(replay, [relayerA], [relayerAAta]),
     ).rejects.toThrow(/SlotAlreadySpent/);
   }, 60_000);
 
@@ -686,106 +716,252 @@ describe("carrier settlement", () => {
     // Everything is well-formed except that we never prepend the precompile
     // instruction. Without it the program has no evidence the sender authorised
     // anything, and must refuse.
+    const ix = await program.methods
+      .settleNote(noteArg(note), hops)
+      .accounts(settleAccounts())
+      .remainingAccounts(writable([relayerAAta]))
+      .instruction();
+
+    await expect(sendSettled([ix], [settler])).rejects.toThrow(/SignatureNotVerified/);
+  }, 60_000);
+
+  it("rejects a handoff the previous carrier never signed", async () => {
+    const note = buildNote(11, ONE_TOKEN);
+    const noteHash = hashNote(note);
+    const at = nowSeconds();
+
+    // sender -> A is genuine. A -> B is not: B signed both halves itself and
+    // A never agreed to hand the note on.
+    const first = { noteHash, relayer: relayerA.publicKey, prev: sender.publicKey, seq: 0, at };
+    const second = { noteHash, relayer: relayerB.publicKey, prev: relayerA.publicKey, seq: 1, at };
+    const firstMsg = hopSigningPayload(first);
+    const secondMsg = hopSigningPayload(second);
+    const entries: SignatureEntry[] = [
+      sender.entry(noteSigningPayload(note)),
+      relayerA.entry(firstMsg),
+      sender.entry(firstMsg),
+      relayerB.entry(secondMsg),
+    ];
+
+    const ix = await program.methods
+      .settleNote(noteArg(note), [
+        { relayer: relayerA.publicKey, at: new BN(at.toString()) },
+        { relayer: relayerB.publicKey, at: new BN(at.toString()) },
+      ])
+      .accounts(settleAccounts())
+      .remainingAccounts(writable([relayerAAta, relayerBAta]))
+      .instruction();
+
     await expect(
-      program.methods
-        .settleNote(noteArg(note), hops)
-        .accounts({
-          settler: settler.publicKey,
-          pouch,
-          vault,
-          recipient: recipientAta,
-          settlerPayout: settlerAta,
-          mint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
-        .remainingAccounts([
-          { pubkey: relayerAAta, isSigner: false, isWritable: true },
-        ])
-        .signers([settler])
-        .rpc(),
+      sendSettled([createEd25519Instruction(entries), ix], [settler]),
     ).rejects.toThrow(/SignatureNotVerified/);
   }, 60_000);
 
-  it("rejects a hop chain with a forged link", async () => {
-    const note = buildNote(11, ONE_TOKEN);
-    const noteHash = hashNote(note);
-    const entries: SignatureEntry[] = [sender.entry(noteSigningPayload(note))];
+  /**
+   * Topping up used to start a new epoch, which voided every note already in
+   * someone's pocket. Now it only adds money.
+   */
+  it("refills without touching the epoch or the slots", async () => {
+    const before = await pouchState();
 
-    // relayerB claims it received the note from relayerA, but relayerA never
-    // co-signed that handoff — relayerB signed both halves itself.
-    const hop = {
-      noteHash,
-      relayer: relayerB.publicKey,
-      prev: relayerA.publicKey,
-      seq: 0,
-      at: BigInt(Math.floor(Date.now() / 1000)),
-    };
-    const message = hopSigningPayload(hop);
-    entries.push(relayerB.entry(message));
+    await program.methods
+      .refillPouch(new BN((10n * ONE_TOKEN).toString()))
+      .accounts({
+        owner: sender.publicKey,
+        pouch,
+        vault,
+        funding: senderAta,
+        mint,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([sender.keypair])
+      .rpc();
+
+    const after = await pouchState();
+    expect(after.epoch).toBe(before.epoch);
+    expect(after.epochStartedAt.toString()).toBe(before.epochStartedAt.toString());
+    expect(BigInt(after.committed.toString()) - BigInt(before.committed.toString()))
+      .toBe(10n * ONE_TOKEN);
+    expect(after.spent.map((w: BN) => w.toString()))
+      .toEqual(before.spent.map((w: BN) => w.toString()));
+  }, 60_000);
+
+  it("will not advance the epoch or close while notes can still settle", async () => {
+    await expect(
+      program.methods
+        .advanceEpoch()
+        .accounts({ owner: sender.publicKey, pouch })
+        .signers([sender.keypair])
+        .rpc(),
+    ).rejects.toThrow(/EpochStillOpen/);
 
     await expect(
       program.methods
-        .settleNote(noteArg(note), [
-          { relayer: hop.relayer, at: new BN(hop.at.toString()) },
-        ])
+        .closePouch()
         .accounts({
-          settler: settler.publicKey,
+          owner: sender.publicKey,
           pouch,
           vault,
-          recipient: recipientAta,
-          settlerPayout: settlerAta,
+          destination: senderAta,
           mint,
           tokenProgram: TOKEN_PROGRAM_ID,
-          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
         })
-        .remainingAccounts([
-          { pubkey: relayerBAta, isSigner: false, isWritable: true },
-        ])
-        .preInstructions([createEd25519Instruction(entries)])
-        .signers([settler])
+        .signers([sender.keypair])
         .rpc(),
-    ).rejects.toThrow(/HopChainBroken|SignatureNotVerified/);
+    ).rejects.toThrow(/PouchNotDrainable/);
   }, 60_000);
 
-  it("slashes the bond when the sender signs two notes against one slot", async () => {
-    // The attack the protocol admits to: same slot, two recipients, both valid.
-    const noteA = buildNote(42, 3n * ONE_TOKEN);
-    const noteB = { ...buildNote(42, 3n * ONE_TOKEN), to: relayerA.publicKey };
+  describe("double spend", () => {
+    // The attack the protocol admits to: same slot, two recipients, both
+    // validly signed. The recipient's note settles; the victim's loses.
+    const SLOT = 42;
+    let victim: Device;
+    let victimAta: PublicKey;
+    let winner: ReturnType<typeof buildNote>;
+    let loser: ReturnType<typeof buildNote>;
 
-    const entries = [
-      sender.entry(noteSigningPayload(noteA)),
-      sender.entry(noteSigningPayload(noteB)),
-    ];
+    beforeAll(async () => {
+      victim = new Device();
+      victimAta = await ataFor(victim.publicKey);
+      winner = buildNote(SLOT, 3n * ONE_TOKEN);
+      loser = buildNote(SLOT, 3n * ONE_TOKEN, 200, victim.publicKey);
+      await settle(winner, [], []);
+    }, 60_000);
 
-    const victimBefore = await balance(relayerAAta);
-    const state: any = await program.account.pouch.fetch(pouch);
-    const bond = BigInt(state.bond.toString());
-    expect(bond).toBeGreaterThan(0n);
+    function prove(
+      settled: ReturnType<typeof buildNote>,
+      losing: ReturnType<typeof buildNote>,
+      victimAccount: PublicKey,
+    ) {
+      return program.methods
+        .proveDoubleSpend(noteArg(settled), noteArg(losing))
+        .accounts({
+          prover: settler.publicKey,
+          pouch,
+          vault,
+          victim: victimAccount,
+          proverPayout: settlerAta,
+          claim: claimAddress(losing),
+          mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .preInstructions([
+          createEd25519Instruction([
+            sender.entry(noteSigningPayload(settled)),
+            sender.entry(noteSigningPayload(losing)),
+          ]),
+        ])
+        .signers([settler])
+        .rpc();
+    }
+
+    it("refuses to pay anyone but the losing note's recipient", async () => {
+      // The prover's own account, as a cheating sender would try.
+      await expect(prove(winner, loser, relayerAAta)).rejects.toThrow(/VictimMismatch/);
+    }, 60_000);
+
+    it("refuses a proof that names the losing note as the settled one", async () => {
+      await expect(prove(loser, winner, recipientAta)).rejects.toThrow(/NoteNotSettled/);
+    }, 60_000);
+
+    it("pays the victim from the bond and keeps the rest for others", async () => {
+      const victimBefore = await balance(victimAta);
+      const proverBefore = await balance(settlerAta);
+      const bondBefore = BigInt((await pouchState()).bond.toString());
+      expect(bondBefore).toBeGreaterThan(loser.amount);
+
+      await prove(winner, loser, victimAta);
+
+      const toVictim = loser.amount;
+      const toProver = loser.amount / 10n;
+      expect(await balance(victimAta)).toBe(victimBefore + toVictim);
+      expect(await balance(settlerAta)).toBe(proverBefore + toProver);
+
+      const after = await pouchState();
+      expect(BigInt(after.bond.toString())).toBe(bondBefore - toVictim - toProver);
+    }, 60_000);
+
+    it("pays each losing note once", async () => {
+      await expect(prove(winner, loser, victimAta)).rejects.toThrow(/already in use|0x0/);
+    }, 60_000);
+
+    it("never pays the owner for their own double spend", async () => {
+      const settled = buildNote(43, ONE_TOKEN);
+      const toSelf = buildNote(43, ONE_TOKEN, 200, sender.publicKey);
+      await settle(settled, [], []);
+      await expect(prove(settled, toSelf, senderAta)).rejects.toThrow(/VictimIsOwner/);
+    }, 60_000);
+
+    it("lets the owner top the bond back up", async () => {
+      const before = BigInt((await pouchState()).bond.toString());
+      await program.methods
+        .addBond(new BN((5n * ONE_TOKEN).toString()))
+        .accounts({
+          owner: sender.publicKey,
+          pouch,
+          vault,
+          funding: senderAta,
+          mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([sender.keypair])
+        .rpc();
+      const after = BigInt((await pouchState()).bond.toString());
+      expect(after - before).toBe(5n * ONE_TOKEN);
+    }, 60_000);
+  });
+
+  /**
+   * A draft nobody finishes used to lock its rent and its slot for good. Once
+   * the note has expired, anyone can clear it, and the rent goes back to
+   * whoever opened it.
+   */
+  it("lets anyone close a draft once its note has expired", async () => {
+    const expiry = (await chainTime()) + 6n;
+    const note = buildNote(150, ONE_TOKEN, 200, recipient.publicKey, expiry);
+    const draft = draftAddress(note, settler.publicKey);
 
     await program.methods
-      .proveDoubleSpend(noteArg(noteA), noteArg(noteB))
+      .beginSettlement(noteArg(note))
       .accounts({
-        prover: settler.publicKey,
+        settler: settler.publicKey,
         pouch,
-        vault,
-        victim: relayerAAta,
-        proverPayout: settlerAta,
-        mint,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        draft,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        systemProgram: SystemProgram.programId,
       })
-      .preInstructions([createEd25519Instruction(entries)])
+      .preInstructions([
+        createEd25519Instruction([sender.entry(noteSigningPayload(note))]),
+      ])
       .signers([settler])
       .rpc();
 
-    const proverCut = bond / 10n;
-    const victimCut = bond - proverCut;
+    // A stranger pays the fee. They are not the settler and sign nothing else.
+    const stranger = Keypair.generate();
+    await fund([stranger.publicKey], LAMPORTS_PER_SOL / 10);
+    const strangerProvider = new anchor.AnchorProvider(
+      connection,
+      new anchor.Wallet(stranger),
+      { commitment: "confirmed", preflightCommitment: "confirmed" },
+    );
+    const asStranger = new anchor.Program(program.idl, strangerProvider);
+    const closeAsStranger = () =>
+      asStranger.methods
+        .closeExpiredDraft()
+        .accounts({ draft, settler: settler.publicKey })
+        .rpc();
 
-    // The victim is made whole from the cheat's own stake.
-    expect(await balance(relayerAAta)).toBe(victimBefore + victimCut);
+    await expect(closeAsStranger()).rejects.toThrow(/DraftNotExpired/);
 
-    const after: any = await program.account.pouch.fetch(pouch);
-    expect(after.bond.toString()).toBe("0");
+    while ((await chainTime()) <= expiry) await sleep(500);
+    // One more slot so the next transaction's clock is past expiry too.
+    await sleep(1_000);
+
+    const rentBefore = await connection.getBalance(settler.publicKey);
+    await closeAsStranger();
+    expect(await connection.getAccountInfo(draft)).toBeNull();
+    expect(await connection.getBalance(settler.publicKey)).toBeGreaterThan(rentBefore);
   }, 60_000);
 });

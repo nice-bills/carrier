@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
-import type { Bundle, HandoffOffer } from "./types.js";
+import { MAX_CHAIN, type Hop } from "@carrier/protocol";
+import { MeshError, type Bundle, type HandoffOffer } from "./types.js";
 
 /**
  * JSON form of a handoff, for transports that move text.
@@ -54,14 +55,6 @@ const encodeHopWire = (h: Bundle["hops"][number]): WireHop => ({
   at: h.at.toString(),
 });
 
-const decodeHopWire = (h: WireHop) => ({
-  noteHash: b64.decode(h.noteHash),
-  relayer: new PublicKey(h.relayer),
-  prev: new PublicKey(h.prev),
-  seq: h.seq,
-  at: BigInt(h.at),
-});
-
 export function encodeOffer(offer: HandoffOffer): WireOffer {
   return {
     owner: offer.bundle.owner.toBase58(),
@@ -85,27 +78,123 @@ export function encodeOffer(offer: HandoffOffer): WireOffer {
   };
 }
 
-export function decodeOffer(raw: WireOffer): HandoffOffer {
+/**
+ * Decoding is where bytes from a stranger become objects, so it validates
+ * everything: types, lengths, integer ranges, and sizes. Anything wrong throws a
+ * `MeshError` — never a TypeError or a silently wrapped number — and
+ * `tryDecodeOffer` turns that into `null` for callers on a radio callback.
+ */
+const U64_MAX = (1n << 64n) - 1n;
+const I64_MIN = -(1n << 63n);
+const I64_MAX = (1n << 63n) - 1n;
+/** Longest base58 or base64 string any field here can legitimately need. */
+const MAX_FIELD_CHARS = 128;
+
+const fail = (what: string): never => {
+  throw new MeshError(`wire offer: ${what}`);
+};
+
+function obj(x: unknown, what: string): Record<string, unknown> {
+  if (!x || typeof x !== "object" || Array.isArray(x)) fail(`${what} is not an object`);
+  return x as Record<string, unknown>;
+}
+
+function str(x: unknown, what: string): string {
+  if (typeof x !== "string" || x.length === 0 || x.length > MAX_FIELD_CHARS) {
+    fail(`${what} is not a short string`);
+  }
+  return x as string;
+}
+
+function key(x: unknown, what: string): PublicKey {
+  const text = str(x, what);
+  try {
+    return new PublicKey(text);
+  } catch {
+    return fail(`${what} is not a public key`);
+  }
+}
+
+function bytes(x: unknown, len: number, what: string): Uint8Array {
+  const text = str(x, what);
+  let out: Uint8Array;
+  try {
+    out = b64.decode(text);
+  } catch {
+    return fail(`${what} is not base64`);
+  }
+  if (out.length !== len) fail(`${what} must be ${len} bytes`);
+  return out;
+}
+
+function int(x: unknown, max: number, what: string): number {
+  if (typeof x !== "number" || !Number.isInteger(x) || x < 0 || x > max) {
+    fail(`${what} is out of range`);
+  }
+  return x as number;
+}
+
+function big(x: unknown, min: bigint, max: bigint, what: string): bigint {
+  if (typeof x !== "string" || !/^-?\d{1,20}$/.test(x)) fail(`${what} is not an integer`);
+  const value = BigInt(x as string);
+  if (value < min || value > max) fail(`${what} is out of range`);
+  return value;
+}
+
+function decodeHopWire(raw: unknown, what: string): Hop {
+  const h = obj(raw, what);
+  return {
+    noteHash: bytes(h.noteHash, 32, `${what}.noteHash`),
+    relayer: key(h.relayer, `${what}.relayer`),
+    prev: key(h.prev, `${what}.prev`),
+    seq: int(h.seq, 0xff, `${what}.seq`),
+    at: big(h.at, I64_MIN, I64_MAX, `${what}.at`),
+  };
+}
+
+export function decodeOffer(input: unknown): HandoffOffer {
+  const raw = obj(input, "offer");
+  const n = obj(raw.note, "note");
+  if (!Array.isArray(raw.hops) || raw.hops.length > MAX_CHAIN) fail("hops is not a short array");
+  if (!Array.isArray(raw.entries) || raw.entries.length > 1 + 2 * MAX_CHAIN) {
+    fail("entries is not a short array");
+  }
+  const hops = raw.hops as unknown[];
+  const entries = raw.entries as unknown[];
+
   return {
     bundle: {
-      owner: new PublicKey(raw.owner),
+      owner: key(raw.owner, "owner"),
       note: {
-        pouch: new PublicKey(raw.note.pouch),
-        to: new PublicKey(raw.note.to),
-        amount: BigInt(raw.note.amount),
-        slotIndex: raw.note.slotIndex,
-        epoch: raw.note.epoch,
-        expiry: BigInt(raw.note.expiry),
-        relayFeeBps: raw.note.relayFeeBps,
+        pouch: key(n.pouch, "note.pouch"),
+        to: key(n.to, "note.to"),
+        amount: big(n.amount, 0n, U64_MAX, "note.amount"),
+        slotIndex: int(n.slotIndex, 0xff, "note.slotIndex"),
+        epoch: int(n.epoch, 0xffff_ffff, "note.epoch"),
+        expiry: big(n.expiry, I64_MIN, I64_MAX, "note.expiry"),
+        relayFeeBps: int(n.relayFeeBps, 0xffff, "note.relayFeeBps"),
       },
-      hops: raw.hops.map(decodeHopWire),
-      entries: raw.entries.map((e) => ({
-        publicKey: new PublicKey(e.publicKey),
-        signature: b64.decode(e.signature),
-        message: b64.decode(e.message),
-      })),
+      hops: hops.map((h, i) => decodeHopWire(h, `hops[${i}]`)),
+      entries: entries.map((rawEntry, i) => {
+        const e = obj(rawEntry, `entries[${i}]`);
+        return {
+          publicKey: key(e.publicKey, `entries[${i}].publicKey`),
+          signature: bytes(e.signature, 64, `entries[${i}].signature`),
+          // Every signed payload is a 32-byte digest (see noteSigningPayload).
+          message: bytes(e.message, 32, `entries[${i}].message`),
+        };
+      }),
     },
-    hop: decodeHopWire(raw.hop),
-    giverSignature: b64.decode(raw.giverSignature),
+    hop: decodeHopWire(raw.hop, "hop"),
+    giverSignature: bytes(raw.giverSignature, 64, "giverSignature"),
   };
+}
+
+/** `decodeOffer` for untrusted input: `null` instead of throwing. */
+export function tryDecodeOffer(input: unknown): HandoffOffer | null {
+  try {
+    return decodeOffer(input);
+  } catch {
+    return null;
+  }
 }

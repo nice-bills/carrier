@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import nacl from "tweetnacl";
 
-import { encodeHop, encodeNote, hashNote, type Hop, type Note } from "./codec.js";
+import {
+  MAX_NOTE_LIFETIME_SECONDS,
+  encodeHop,
+  encodeNote,
+  hashHop,
+  hashNote,
+  type Hop,
+  type Note,
+} from "./codec.js";
 import { createEd25519Instruction } from "./ed25519.js";
 
 const POUCH = new PublicKey("11111111111111111111111111111112");
@@ -75,6 +83,22 @@ describe("note encoding", () => {
     expect(encoded.slice(0, 14)).not.toEqual(encodeNote(NOTE).slice(0, 14));
   });
 
+  it("hashes a hop identically to the Rust program", () => {
+    // Same fixture as `hop_encoding_is_domain_separated` in
+    // programs/carrier/src/state.rs. Pinned here (and cross-checked with an
+    // independent encoder) so the Rust side can assert the same digest.
+    const hop: Hop = {
+      noteHash: hashNote(NOTE),
+      relayer: POUCH,
+      prev: TO,
+      seq: 0,
+      at: 1_700_000_000n,
+    };
+    expect(Buffer.from(hashHop(hop)).toString("hex")).toBe(
+      "90b0886742837b2810d0a36d17837bcf552e11f454e017fd5fe86dd6e2b7b2ab",
+    );
+  });
+
   it("rejects a malformed note hash", () => {
     expect(() =>
       encodeHop({
@@ -85,6 +109,52 @@ describe("note encoding", () => {
         at: 0n,
       }),
     ).toThrow(/32 bytes/);
+  });
+});
+
+describe("integer range checks", () => {
+  // DataView wraps silently, so without these an out-of-range value would hash
+  // — and verify — exactly like its truncated twin.
+  const bad: [string, Partial<Note>][] = [
+    ["amount below zero", { amount: -1n }],
+    ["amount above u64", { amount: 1n << 64n }],
+    ["expiry wrapped by 2^64", { expiry: NOTE.expiry + (1n << 64n) }],
+    ["expiry above i64", { expiry: 1n << 63n }],
+    ["slot 256", { slotIndex: 256 }],
+    ["slot negative", { slotIndex: -1 }],
+    ["slot fractional", { slotIndex: 1.5 }],
+    ["slot NaN", { slotIndex: Number.NaN }],
+    ["epoch above u32", { epoch: 2 ** 32 }],
+    ["fee above u16", { relayFeeBps: 65_536 }],
+    ["fee Infinity", { relayFeeBps: Number.POSITIVE_INFINITY }],
+  ];
+  for (const [name, override] of bad) {
+    it(`throws on ${name}`, () => {
+      expect(() => encodeNote({ ...NOTE, ...override })).toThrow(RangeError);
+    });
+  }
+
+  it("still encodes the extremes of each field", () => {
+    expect(() =>
+      encodeNote({
+        ...NOTE,
+        amount: (1n << 64n) - 1n,
+        slotIndex: 255,
+        epoch: 2 ** 32 - 1,
+        expiry: -(1n << 63n),
+        relayFeeBps: 65_535,
+      }),
+    ).not.toThrow();
+  });
+
+  it("throws on an out-of-range hop seq or timestamp", () => {
+    const hop: Hop = { noteHash: hashNote(NOTE), relayer: POUCH, prev: TO, seq: 0, at: 0n };
+    expect(() => encodeHop({ ...hop, seq: 256 })).toThrow(RangeError);
+    expect(() => encodeHop({ ...hop, at: 1n << 63n })).toThrow(RangeError);
+  });
+
+  it("mirrors the program's 30-day note lifetime", () => {
+    expect(MAX_NOTE_LIFETIME_SECONDS).toBe(2_592_000n);
   });
 });
 
@@ -173,6 +243,20 @@ describe("ed25519 precompile instruction", () => {
     ]);
     const [parsed] = parsePrecompile(new Uint8Array(ix.data));
     expect(parsed.message).toEqual(message);
+  });
+
+  it("refuses instruction data that 16-bit offsets cannot address", () => {
+    const signer = Keypair.generate();
+    const message = new Uint8Array(70_000);
+    expect(() =>
+      createEd25519Instruction([
+        {
+          publicKey: signer.publicKey,
+          message,
+          signature: nacl.sign.detached(message, signer.secretKey),
+        },
+      ]),
+    ).toThrow(/16-bit/);
   });
 
   it("rejects a signature of the wrong length", () => {
