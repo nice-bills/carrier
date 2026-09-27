@@ -111,7 +111,7 @@ function NobodyNearby({ c }: { c: Carrier }) {
   let action: { label: string; hint: string; onPress: () => void } | null = null;
   if (radio.state === "needs-permission") {
     action = radio.blocked
-      ? { label: "Open settings", hint: "Opens Android settings to allow Nearby devices", onPress: c.services.openSettings }
+      ? { label: "Open settings", hint: "Opens settings to allow Nearby devices", onPress: c.services.openSettings }
       : { label: "Allow nearby access", hint: "Asks Android for Nearby devices and Location", onPress: c.startRadio };
   } else if (radio.state === "off" || radio.state === "unavailable") {
     action = { label: "Look for people", hint: "Turns the radio on so nearby phones can find you", onPress: c.startRadio };

@@ -23,7 +23,7 @@ nothing.
 | Settlement (e2e, local validator) | `./scripts/localnet.sh` | not run since the fixes (no validator in the audit environment); type-checks |
 | Settlement (e2e, devnet) | `./scripts/devnet.sh` | not run; the devnet deployment predates the fixes and must be redeployed |
 | Scripts lint | `bash -n scripts/*.sh && shellcheck scripts/*.sh` | clean |
-| **App on a phone** | two Android devices | **never run** |
+| **App on a phone** | two Android phones, or two iPhones (they cannot mix) | **never run** |
 
 The app type-checks and its transport was exercised against an in-memory fake
 of the radio library, but it has never been built or run on a device. See
@@ -169,7 +169,8 @@ These cost most of a day. Do not rediscover them during the event.
 
 What remains needs hardware and a room full of people:
 
-1. **Build and run the app on two Android phones.** The Nearby transport now
+1. **Build and run the app on two phones of the same kind** (two Androids or
+   two iPhones; `app/README.md` has both build paths). The Nearby transport now
    targets the real `expo-nearby-connections` 1.x API, authenticates peers and
    is wired to the mesh, but it has never executed on a device. The native
    build (Expo 52 with a Nitro module the library lists for Expo 51 and 55),

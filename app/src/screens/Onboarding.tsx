@@ -24,6 +24,7 @@ import { useDock } from "../ui/chrome";
 import type { Carrier } from "../useCarrier";
 import { PeopleEmpty, PersonRow } from "./People";
 import { radioLine } from "./radioLine";
+import { PASSES_WITH, RADIO_ASKS } from "../platform";
 
 /**
  * First run. Five steps, and the last one is not a slide: it is a real
@@ -315,14 +316,9 @@ function Radio({ perm }: { perm: Perm }) {
     <View>
       <Kicker text="First, the radio" />
       <H2>Let Carrier find phones near you</H2>
-      <Text style={s.p}>Handoffs travel over local radio, about as far as you could pass something across a room.</Text>
+      <Text style={s.p}>Handoffs travel over local radio, about as far as you could pass something across a room, to {PASSES_WITH}.</Text>
       <Card pad={false} style={{ paddingHorizontal: 18 }}>
-        {(
-          [
-            ["Nearby devices", "Bluetooth and Wi-Fi Direct, to see phones within about 10 metres and hand payments to them.", null],
-            ["Location", "Android requires it before any app may scan for other phones.", "We never look at where you are."],
-          ] as const
-        ).map(([b, why, aside], i) => (
+        {RADIO_ASKS.map(([b, why, aside], i) => (
           <View
             key={b}
             style={[s.permRow, i > 0 && s.permSep]}

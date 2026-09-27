@@ -29,6 +29,10 @@ export interface PermissionResult {
 }
 
 export async function ensureRadioPermissions(): Promise<PermissionResult> {
+  // iOS has no runtime call for these: the system asks for Local Network and
+  // Bluetooth itself the first time the radio starts, using the Info.plist
+  // strings from app.json. A refusal there shows up as nobody in range.
+  if (Platform.OS === "ios") return { granted: true, missing: [], blocked: false };
   if (Platform.OS !== "android") {
     return { granted: false, missing: [], blocked: false };
   }

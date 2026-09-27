@@ -143,7 +143,7 @@ export function YouScreen({ c, onSetup, onLegal }: { c: Carrier; onSetup: () => 
             onPress={c.services.openSettings}
             accessibilityRole="button"
             accessibilityLabel={`Nearby access, ${c.radio.state === "on" ? "on" : "off"}`}
-            accessibilityHint="Opens Android settings for Carrier"
+            accessibilityHint="Opens settings for Carrier"
             style={({ pressed }) => [s.rowBtn, s.rowLast, pressed && s.rowPressed]}
           >
             <Text style={s.rowText}>Nearby access</Text>

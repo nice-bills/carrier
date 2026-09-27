@@ -7,8 +7,16 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "platforms": [
-      "android"
+      "android",
+      "ios"
     ],
+    "ios": {
+      "bundleIdentifier": "xyz.carrier.mesh",
+      "supportsTablet": false,
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
     "android": {
       "package": "xyz.carrier.mesh",
       "permissions": [
@@ -26,13 +34,28 @@
       ]
     },
     "plugins": [
-      "expo-secure-store",
-      "expo-nearby-connections",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
+      "./plugins/with-multipeer-udp",
+      [
+        "expo-nearby-connections",
+        {
+          "bonjourServicesName": "carrier",
+          "localNetworkUsagePermissionText": "Carrier uses your local network to find iPhones within about 10 metres and hand payments to them. Nothing goes on the internet.",
+          "bluetoothUsagePermissionText": "Carrier uses Bluetooth so iPhones nearby can find each other and pass payments, even with no Wi-Fi around."
+        }
+      ],
       "@maplibre/maplibre-react-native",
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Carrier uses your location, rounded to about 100 m, to show where payments passed hand to hand. Only if you turn the map on."
+          "locationWhenInUsePermission": "Carrier uses your location, rounded to about 100 m, to show where payments passed hand to hand. Only if you turn the map on.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false
         }
       ]
     ]

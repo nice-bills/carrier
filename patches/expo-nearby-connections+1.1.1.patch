@@ -1,0 +1,81 @@
+diff --git a/node_modules/expo-nearby-connections/ios/MultipeerConnectivityModule.swift b/node_modules/expo-nearby-connections/ios/MultipeerConnectivityModule.swift
+index 35dce6e..8c674ff 100644
+--- a/node_modules/expo-nearby-connections/ios/MultipeerConnectivityModule.swift
++++ b/node_modules/expo-nearby-connections/ios/MultipeerConnectivityModule.swift
+@@ -21,14 +21,25 @@ public class MultipeerConnectivityModule: NSObject {
+         self.session?.disconnect()
+     }
+ 
+-    public func startAdvertise(_ name: String) -> String {
+-        // Tear down previous state before re-initializing
+-        self.advertiser?.stopAdvertisingPeer()
++    /// One peer id and one session for advertising and discovery under the
++    /// same name, so the id a browser finds is the id that later invites,
++    /// connects and sends (and an accepted invitation joins the session the
++    /// advertiser was created for). A new name starts a fresh session.
++    private func sharedPeer(_ name: String) -> MCPeerID {
++        if let peerId = self.myPeerId, peerId.displayName == name, self.session != nil {
++            return peerId
++        }
+         self.session?.disconnect()
+-        self.session = nil
+-
+         let peerId = MCPeerID(displayName: name)
+         self.myPeerId = peerId
++        self.session = MCSession(peer: peerId, securityIdentity: nil, encryptionPreference: .required)
++        self.session?.delegate = self
++        return peerId
++    }
++
++    public func startAdvertise(_ name: String) -> String {
++        self.advertiser?.stopAdvertisingPeer()
++        let peerId = sharedPeer(name)
+         let discoveryInfo: [String: String] = [
+             "incomingPeerId": String(peerId.hash),
+             "incomingName": name
+@@ -38,9 +49,6 @@ public class MultipeerConnectivityModule: NSObject {
+         self.advertiser = MCNearbyServiceAdvertiser(peer: peerId, discoveryInfo: discoveryInfo, serviceType: serviceType)
+         self.advertiser?.delegate = self
+ 
+-        self.session = MCSession(peer: peerId, securityIdentity: nil, encryptionPreference: .required)
+-        self.session?.delegate = self
+-
+         self.advertiser?.startAdvertisingPeer()
+ 
+         return String(peerId.hash)
+@@ -53,21 +61,13 @@ public class MultipeerConnectivityModule: NSObject {
+     }
+ 
+     public func startDiscovery(_ name: String) -> String {
+-        // Tear down previous state before re-initializing
+         self.discovery?.stopBrowsingForPeers()
+-        self.session?.disconnect()
+-        self.session = nil
+-
+-        let peerId = MCPeerID(displayName: name)
+-        self.myPeerId = peerId
++        let peerId = sharedPeer(name)
+         let serviceType = InfoPlistParser.getServiceType()
+ 
+         self.discovery = MCNearbyServiceBrowser(peer: peerId, serviceType: serviceType)
+         self.discovery?.delegate = self
+ 
+-        self.session = MCSession(peer: peerId, securityIdentity: nil, encryptionPreference: .required)
+-        self.session?.delegate = self
+-
+         self.discovery?.startBrowsingForPeers()
+ 
+         return String(peerId.hash)
+@@ -132,6 +132,12 @@ public class MultipeerConnectivityModule: NSObject {
+         self.discovery = nil
+         self.session?.disconnect()
+         self.session = nil
++        self.myPeerId = nil
++        peerQueue.sync {
++            self.discoveredPeers.removeAll()
++            self.invitedPeers.removeAll()
++            self.connectedPeers.removeAll()
++        }
+     }
+ 
+     public func sendText(to peerId: String, payload text: String) throws {
