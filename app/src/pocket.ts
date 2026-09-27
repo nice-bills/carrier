@@ -88,6 +88,8 @@ export const HAND_TTL_MS = 60_000;
 const MAX_FEED = 80;
 const MAX_PASSED = 64;
 const MAX_SIGNED = SLOTS_PER_EPOCH * 2;
+/** Live notes this phone signed or carried, remembered past the capped logs. */
+const MAX_TOUCHED = 4096;
 
 export type FeedKind =
   | "took" // we took a note someone was carrying
@@ -149,6 +151,10 @@ interface PocketFile {
   /** Keys this phone has completed a handoff with, for rank. */
   met: string[];
   onboarded: boolean;
+  /** The person dismissed the Carry tips. */
+  tipsOff?: boolean;
+  /** Note hash to expiry, for every live note this phone signed or carried. */
+  touched?: Record<string, string>;
   pouch: CachedPouch | null;
   /** Slots signed on this phone, per `${pouch}:${epoch}`. Never reused. */
   slots: Record<string, number[]>;
@@ -201,12 +207,14 @@ export class Pocket implements HandoffServer {
   private eventListeners = new Set<(e: FeedEvent) => void>();
   private feedLog: FeedEvent[] = [];
   private passedLog: PassedNote[] = [];
+  private touched = new Map<string, bigint>();
   private signedLog: SignedNote[] = [];
   private slots: Record<string, number[]> = {};
   private pouchCache: CachedPouch | null = null;
   private handedOnCount = 0;
   private seq = 0;
   onboarded = false;
+  tipsOff = false;
 
   private constructor(
     readonly node: CarrierNode,
@@ -287,6 +295,15 @@ export class Pocket implements HandoffServer {
     return b.hops.length === 0 && b.owner.equals(this.me);
   }
 
+  /**
+   * Whether a note someone nearby holds is one this phone could take: not one
+   * it holds, signed, or already carried. The program refuses a chain that
+   * names the same carrier twice, so offering those back only fails.
+   */
+  couldTake(noteHash: string): boolean {
+    return !this.node.holds(noteHash) && !this.touched.has(noteHash);
+  }
+
   isForMe(b: Bundle): boolean {
     return b.note.to.equals(this.me);
   }
@@ -310,6 +327,13 @@ export class Pocket implements HandoffServer {
 
   async finishOnboarding(): Promise<void> {
     this.onboarded = true;
+    this.changed();
+    await this.persist();
+  }
+
+  /** Hide the Carry tips for good. */
+  async stopTips(): Promise<void> {
+    this.tipsOff = true;
     this.changed();
     await this.persist();
   }
@@ -426,7 +450,7 @@ export class Pocket implements HandoffServer {
    */
   async pull(transport: Transport, peer: PublicKey, only?: string[]): Promise<Bundle[]> {
     const offered = only ?? (await transport.digests(peer));
-    const wanted = [...new Set(offered)].filter((d) => !this.node.holds(d)).slice(0, MAX_PULL_PER_CONTACT);
+    const wanted = [...new Set(offered)].filter((d) => this.couldTake(d)).slice(0, MAX_PULL_PER_CONTACT);
     const taken: Bundle[] = [];
     for (const digest of wanted) {
       try {
@@ -526,6 +550,7 @@ export class Pocket implements HandoffServer {
       at: Date.now(),
     };
     this.signedLog = [...this.signedLog, record].slice(-MAX_SIGNED);
+    this.touch(hash, expiry);
     try {
       await this.persist();
     } catch (e) {
@@ -709,6 +734,8 @@ export class Pocket implements HandoffServer {
       bundles: this.list().map(encodeBundle),
       met: [...this.met],
       onboarded: this.onboarded,
+      tipsOff: this.tipsOff,
+      touched: Object.fromEntries([...this.touched].map(([k, e]) => [k, e.toString()])),
       pouch: this.pouchCache,
       slots: this.slots,
       signed: this.signedLog,
@@ -746,6 +773,7 @@ export class Pocket implements HandoffServer {
     }
     // A v1 pocket belongs to someone who already used the app.
     this.onboarded = v === 1 ? true : file.onboarded === true;
+    this.tipsOff = file.tipsOff === true;
     this.pouchCache = parseCached(file.pouch);
     this.slots = {};
     if (file.slots && typeof file.slots === "object") {
@@ -768,6 +796,17 @@ export class Pocket implements HandoffServer {
     this.passedLog = (Array.isArray(file.passed) ? file.passed : [])
       .filter((p): p is PassedNote => typeof p === "object" && p !== null && typeof (p as PassedNote).hash === "string")
       .slice(-MAX_PASSED);
+    this.touched = new Map();
+    const loadedAt = nowSeconds();
+    if (file.touched && typeof file.touched === "object") {
+      for (const [k, e] of Object.entries(file.touched)) {
+        if (typeof e === "string" && /^\d{1,20}$/.test(e) && BigInt(e) > loadedAt) this.touched.set(k, BigInt(e));
+      }
+    }
+    // Pockets saved before `touched` existed: fall back to what the logs still hold.
+    for (const x of [...this.signedLog, ...this.passedLog]) {
+      if (!this.touched.has(x.hash) && /^\d{1,20}$/.test(x.expiry) && BigInt(x.expiry) > loadedAt) this.touched.set(x.hash, BigInt(x.expiry));
+    }
     this.feedLog = (Array.isArray(file.feed) ? file.feed : [])
       .filter((e): e is FeedEvent => typeof e === "object" && e !== null && typeof (e as FeedEvent).text === "string")
       .slice(0, MAX_FEED);
@@ -812,6 +851,15 @@ export class Pocket implements HandoffServer {
 
   private remember(p: PassedNote) {
     this.passedLog = [...this.passedLog.filter((x) => x.hash !== p.hash), p].slice(-MAX_PASSED);
+    this.touch(p.hash, BigInt(p.expiry));
+  }
+
+  /** Remember a note this phone signed or carried until it expires. */
+  private touch(hash: string, expiry: bigint) {
+    const now = nowSeconds();
+    for (const [k, e] of this.touched) if (e <= now) this.touched.delete(k);
+    this.touched.set(hash, expiry);
+    while (this.touched.size > MAX_TOUCHED) this.touched.delete(this.touched.keys().next().value!);
   }
 
   private meet(peer: PublicKey) {

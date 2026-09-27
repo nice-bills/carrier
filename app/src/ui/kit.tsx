@@ -293,9 +293,9 @@ const rc = StyleSheet.create({
   sub: { fontFamily: FONT.mono, fontSize: 12, textAlign: "center", color: C.receiptInk2, marginTop: 2 },
   rule: { borderTopWidth: 1.5, borderStyle: "dashed", borderColor: C.ruleStrong, marginVertical: 10 },
   row: { flexDirection: "row", alignItems: "flex-end", paddingVertical: 4, gap: 6 },
-  dt: { fontFamily: FONT.mono, fontSize: 14, color: C.receiptInk2 },
-  leader: { flex: 1, borderBottomWidth: 1.5, borderStyle: "dotted", borderColor: C.ruleStrong, marginBottom: 5 },
-  dd: { fontFamily: FONT.mono, fontSize: 14, fontWeight: "700", color: C.receiptInk, flexShrink: 1, textAlign: "right" },
+  dt: { fontFamily: FONT.mono, fontSize: 14, color: C.receiptInk2, flexShrink: 1 },
+  leader: { flex: 1, minWidth: 12, borderBottomWidth: 1.5, borderStyle: "dotted", borderColor: C.ruleStrong, marginBottom: 5 },
+  dd: { fontFamily: FONT.mono, fontSize: 14, fontWeight: "700", color: C.receiptInk, flexShrink: 0, textAlign: "right" },
   tear: { position: "absolute", left: 0, right: 0, bottom: -6, flexDirection: "row", justifyContent: "space-between" },
   tooth: { width: 11, height: 11, backgroundColor: C.paper, transform: [{ rotate: "45deg" }] },
 });

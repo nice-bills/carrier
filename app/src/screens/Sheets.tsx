@@ -61,7 +61,7 @@ export function PassSheet({
     >
       <Receipt>
         <Row label="Amount" value={`${f.value} ${f.unit}`} spoken={`Amount: ${f.spoken}`} />
-        <Row label="Stamps on it" value={String(bundle.hops.length + (delivering ? 1 : 2))} />
+        <Row label="Stamps once handed" value={String(bundle.hops.length + (delivering ? 0 : 1))} />
         {own ? (
           <Row label={delivering ? "They receive" : "They receive at least"} value={fmt(split.toRecipient)} />
         ) : f.role === "carrying" && !delivering ? (

@@ -161,7 +161,11 @@ the radio, keystore or file system.
 ```
 npm run preview -w app          # http://localhost:5199/?screen=carry
 node app/preview/shot.mjs "?screen=you" you.png   # with the preview running
+node app/preview/phone-run.mjs out/               # whole journey on an emulated Pixel 7, with video
 ```
+
+To check the real Android bundle builds (Metro, Hermes) without a phone:
+`npx expo export --platform android --output-dir /tmp/android-export` from `app/`.
 
 Screens: `?screen=onboarding&step=0..4`, `carry`, `around`, `you`, `pay&step=who|amount|confirm`,
 `confirm`, `pass`, `settle`, `pouch`, `terms`, `privacy`. Modifiers: `&reduced=1`,
