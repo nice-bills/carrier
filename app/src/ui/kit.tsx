@@ -290,16 +290,22 @@ export function HoldButton({
   const [w, setW] = useState(0);
   const run = useRef<Animated.CompositeAnimation | null>(null);
   const off = disabled || busy;
+  // One confirm per fill, whichever way it came (hold or screen reader).
+  const fired = useRef(false);
+  const confirm = () => {
+    if (fired.current) return;
+    fired.current = true;
+    setState("done");
+    buzz("success");
+    onConfirm();
+  };
   const start = () => {
-    if (off || state === "done") return;
+    if (off || state === "done" || fired.current) return;
     setState("holding");
     buzz("tap");
     run.current = Animated.timing(fill, { toValue: 1, duration: ms * (1 - (fill as any)._value), easing: Easing.linear, useNativeDriver: false });
     run.current.start(({ finished }) => {
-      if (!finished) return;
-      setState("done");
-      buzz("success");
-      onConfirm();
+      if (finished) confirm();
     });
   };
   const stop = () => {
@@ -314,6 +320,7 @@ export function HoldButton({
       const t = setTimeout(() => {
         setState("idle");
         fill.setValue(0);
+        fired.current = false;
       }, 1500);
       return () => clearTimeout(t);
     }
@@ -330,7 +337,9 @@ export function HoldButton({
       accessibilityState={{ disabled: !!off, busy: !!busy }}
       accessibilityActions={[{ name: "activate" }]}
       onAccessibilityAction={(e) => {
-        if (e.nativeEvent.actionName === "activate" && !off) onConfirm();
+        if (e.nativeEvent.actionName !== "activate" || off || state !== "idle") return;
+        fill.setValue(1);
+        confirm();
       }}
       style={[btn.base, btn.hold, off && btn.disabled]}
     >
