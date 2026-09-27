@@ -13,7 +13,7 @@ import {
 import { C } from "../theme";
 import { hhmm } from "../format";
 import { useReducedMotion } from "../ui/kit";
-import { boundsOf, pinsFor, shapes } from "./geo";
+import { boundsOf, fitCells, fitKey, pinsFor, shapes } from "./geo";
 import { PinView } from "./Pins";
 import type { SpreadMapProps } from "./spreadMapProps";
 
@@ -38,9 +38,12 @@ export function SpreadMap({ routes, focus, me, here, mode, inset, locate, label,
   const { lines, points } = useMemo(() => shapes(routes, focus, me, mode), [routes, focus, me, mode]);
   const pins = useMemo(() => (mode === "route" && focus ? pinsFor(focus, me, hhmm) : []), [mode, focus, me]);
 
-  // What the camera should show: the chosen route (or everything today), else where the phone is.
+  // What the camera should show: the chosen route (or everything today), else
+  // where the phone is. Refit only when that changes (see `fitKey`), not on
+  // every pocket refresh, so a pan or zoom stays put.
+  const key = fitKey(routes, focus, here, mode);
   const fit = useMemo<CameraStop>(() => {
-    const cells = mode === "route" ? (focus?.points.map((p) => p.cell) ?? []) : routes.flatMap((r) => r.points.map((p) => p.cell));
+    const cells = fitCells(routes, focus, mode);
     const b = boundsOf(cells.length ? cells : here ? [here] : []);
     if (!b) return { zoomLevel: 2, centerCoordinate: [0, 20] };
     return {
@@ -53,7 +56,8 @@ export function SpreadMap({ routes, focus, me, here, mode, inset, locate, label,
         paddingRight: 70,
       },
     };
-  }, [mode, focus, routes, here, inset.top, inset.bottom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, inset.top, inset.bottom]);
 
   // The locate button: centre on this phone if it knows where it is, else refit.
   const [stop, setStop] = useState<CameraStop>(fit);

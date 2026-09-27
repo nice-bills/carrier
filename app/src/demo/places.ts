@@ -2,7 +2,7 @@ import { DEMO_CENTRE } from "../map/demoCampus";
 import type { LocationService } from "../map/location";
 import { pointAt } from "../map/trail";
 import { roundCell, type Cell, type PointKind, type Route, type TrailPoint } from "../map/types";
-import { cast } from "./services";
+import { cast } from "./cast";
 
 /**
  * Where the preview's cast stand on the demo campus, and the trails the

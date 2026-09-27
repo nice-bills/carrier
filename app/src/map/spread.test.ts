@@ -81,18 +81,19 @@ describe("trails travel with slips", () => {
     expect(ada.pocket.trailFor(hash).map((p) => p.kind)).toEqual(["sent"]);
 
     await handOver(ada, bo, hash);
-    // The giver adds the hop point (Ada was at the library when Bo took it).
+    // The taker adds its own hop point, from its own fix.
     const hop0 = bo.pocket.trailFor(hash).find((p) => p.kind === "hop" && p.seq === 0)!;
-    expect(hop0).toMatchObject({ who: bo.key.toBase58(), cell: library });
-    // Ada keeps the route after the slip has left her pocket.
+    expect(hop0).toMatchObject({ who: bo.key.toBase58(), cell: canteen });
+    // Ada keeps the route after the slip has left her pocket, with only her own point.
     expect(ada.pocket.node.holds(hash)).toBe(false);
     expect(ada.pocket.routes()[0]).toMatchObject({ id: hash, mine: true, settled: false });
-    expect(ada.pocket.trailFor(hash)).toHaveLength(2);
+    expect(ada.pocket.trailFor(hash).map((p) => p.who)).toEqual([ada.key.toBase58()]);
 
     await handOver(bo, cy, hash);
     const trail = cy.pocket.trailFor(hash);
     expect(trail.map((p) => `${p.kind}${p.seq}`)).toEqual(["sent0", "hop0", "hop1"]);
-    expect(trail[2]!.cell).toEqual(canteen);
+    expect(trail[1]!.cell).toEqual(canteen);
+    expect(trail[2]).toMatchObject({ who: cy.key.toBase58(), cell: gate });
 
     const bundle = cy.pocket.node.bundle(hash)!;
     cy.pocket.settledHere(bundle, ["sig"]);
@@ -101,7 +102,7 @@ describe("trails travel with slips", () => {
     expect(route.points.at(-1)).toMatchObject({ kind: "settled", seq: bundle.hops.length + 1, cell: gate });
   });
 
-  it("lets the taker add the point when the giver has the map off", async () => {
+  it("has the taker add its own point, even when the giver has the map off", async () => {
     const ada = await phone(null);
     const bo = await phone(canteen);
     const hash = await pay(ada, Keypair.generate().publicKey);
@@ -112,6 +113,51 @@ describe("trails travel with slips", () => {
     expect(ada.pocket.routes()).toEqual([]);
   });
 
+  it("never puts a taker with the map off on anyone's map", async () => {
+    const ada = await phone(library);
+    const bo = await phone(null);
+    const cy = await phone(gate);
+    const hash = await pay(ada, Keypair.generate().publicKey);
+    const sent: unknown[] = [];
+    const seen = (trail: unknown) => (sent.push(trail), trail);
+    await handOver(ada, bo, hash, seen);
+    await handOver(bo, cy, hash, seen);
+    const boKey = bo.key.toBase58();
+    // Not in what left Ada's phone or Bo's, nor in what Ada, Bo or Cy keep.
+    expect(sent).toHaveLength(2);
+    expect(JSON.stringify(sent)).not.toContain(boKey);
+    for (const p of [ada, bo, cy]) expect(p.pocket.trailFor(hash).some((x) => x.who === boKey)).toBe(false);
+    expect(cy.pocket.trailFor(hash).map((p) => `${p.kind}${p.seq}`)).toEqual(["sent0", "hop1"]);
+  });
+
+  it("drops points from a peer that do not name who held the note at that step", async () => {
+    const ada = await phone(library);
+    const bo = await phone(null);
+    const hash = await pay(ada, Keypair.generate().publicKey);
+    const stranger = Keypair.generate().publicKey.toBase58();
+    await handOver(ada, bo, hash, (trail) => [
+      ...(trail as unknown[]),
+      // Someone who never held it, and Bo himself: Bo's point is only Bo's phone's to make.
+      { seq: 0, kind: "hop", who: stranger, at: 1, cell: canteen },
+      { seq: 1, kind: "hop", who: bo.key.toBase58(), at: 1, cell: canteen },
+      { seq: 1, kind: "settled", who: ada.key.toBase58(), at: 1, cell: gate },
+    ]);
+    expect(bo.pocket.trailFor(hash).map((p) => `${p.kind}${p.seq}`)).toEqual(["sent0"]);
+  });
+
+  it("keeps nothing about notes handled with the map off", async () => {
+    const store = memoryStore();
+    const ada = await phone(null, store);
+    const bo = await phone(null);
+    const hash = await pay(ada, bo.key);
+    await handOver(ada, bo, hash);
+    bo.pocket.settledHere(bo.pocket.node.bundle(hash)!, ["sig"]);
+    expect(ada.pocket.routes()).toEqual([]);
+    expect(bo.pocket.routes()).toEqual([]);
+    await ada.pocket.persist();
+    expect(await store.side("routes").read()).toBeNull();
+  });
+
   it("carries a trail through a phone with the map off without adding to it", async () => {
     const ada = await phone(library);
     const bo = await phone(null);
@@ -119,7 +165,7 @@ describe("trails travel with slips", () => {
     const hash = await pay(ada, Keypair.generate().publicKey);
     await handOver(ada, bo, hash);
     await handOver(bo, cy, hash);
-    expect(cy.pocket.trailFor(hash).map((p) => `${p.kind}${p.seq}`)).toEqual(["sent0", "hop0"]);
+    expect(cy.pocket.trailFor(hash).map((p) => `${p.kind}${p.seq}`)).toEqual(["sent0"]);
   });
 
   it("stores only rounded cells, even from a locator that hands back a raw fix", async () => {
@@ -157,6 +203,34 @@ describe("trails travel with slips", () => {
     expect(pocket.trailFor(hash)).toEqual(ada.pocket.trailFor(hash));
     await pocket.setMapOn(false);
     expect((await Pocket.open(signer(ada.kp), store)).pocket.mapOn).toBe(false);
+  });
+
+  it("keeps routes in their own file, written only when they change", async () => {
+    const store = memoryStore();
+    const routes = store.side("routes");
+    const ada = await phone(library, store);
+    const hash = await pay(ada, Keypair.generate().publicKey);
+    expect(JSON.parse(store.text!).trails).toBeUndefined();
+    const saved = await routes.read();
+    expect(JSON.parse(saved!).routes[0].id).toBe(hash);
+    let writes = 0;
+    const write = routes.write.bind(routes);
+    routes.write = async (t) => ((writes += 1), write(t));
+    ada.pocket.observePouch({ ...pouchFor(ada.key), fetchedAt: Date.now() + 1 });
+    await ada.pocket.persist();
+    expect(writes).toBe(0);
+  });
+
+  it("moves routes from an older pocket file into their own", async () => {
+    const old = memoryStore();
+    const ada = await phone(library, old);
+    const hash = await pay(ada, Keypair.generate().publicKey);
+    const legacy = { ...JSON.parse(old.text!), trails: JSON.parse((await old.side("routes").read())!).routes };
+    const store = memoryStore(JSON.stringify(legacy));
+    const { pocket } = await Pocket.open(signer(ada.kp), store);
+    expect(pocket.trailFor(hash)).toEqual(ada.pocket.trailFor(hash));
+    expect(JSON.parse(store.text!).trails).toBeUndefined();
+    expect(JSON.parse((await store.side("routes").read())!).routes[0].id).toBe(hash);
   });
 });
 

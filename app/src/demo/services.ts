@@ -8,6 +8,7 @@ import { MINT, MINT_DECIMALS } from "../config";
 import { firstFreeSlot, type CachedPouch } from "../ledger";
 import { Pocket, memoryStore, nowSeconds } from "../pocket";
 import type { AppWallet, ChainService, Radio, RadioEvents, Services } from "../services/types";
+import { cast } from "./cast";
 import { demoLocation, places, seededRoutes, trailOf } from "./places";
 
 /**
@@ -34,8 +35,6 @@ export interface DemoOptions {
   mapOff?: boolean;
 }
 
-const seeded = (n: number) => Keypair.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => (i * 7 + n * 31 + 11) & 255));
-
 class DemoWallet implements AppWallet {
   constructor(private readonly kp: Keypair) {}
   get publicKey() {
@@ -58,16 +57,7 @@ export const pouchOf = (owner: PublicKey) =>
 
 const units = (whole: number) => BigInt(Math.round(whole * 10 ** MINT_DECIMALS));
 
-/** The cast. Keys are fixed so screenshots are stable. */
-export const cast = {
-  me: seeded(1),
-  ama: seeded(2),
-  chidi: seeded(3),
-  mei: seeded(4),
-  zanele: seeded(5),
-  kofi: seeded(6),
-  tunde: seeded(7),
-};
+export { cast };
 
 function note(owner: Keypair, to: PublicKey, amount: number, slot: number, feeBps = 200): Note {
   const now = nowSeconds();
@@ -248,14 +238,14 @@ export function demoServices(opts: DemoOptions = {}): Services {
   const seedPocket = async (p: Pocket) => {
     if (state.pouch) p.observePouch({ ...state.pouch });
     if (p.list().length) return;
-    // Each slip arrives with the trail its earlier phones would have sent,
-    // ending where you took it.
+    // Each slip arrives with the trail its earlier phones would have sent.
+    // This phone adds its own point as it takes it (the map is on and the
+    // demo's location always answers), as a real phone would.
     // Carried: Ama -> Chidi -> you, for Zanele.
     const a = carry(cast.ama, note(cast.ama, cast.zanele.publicKey, 12, 4), [cast.chidi], [34]);
     const aTrail = trailOf([
       ["sent", 0, "ama", places.ama, 41],
       ["hop", 0, "chidi", places.chidi, 34],
-      ["hop", 1, "me", places.me, 2],
     ]);
     p.accept({ ...a.node.prepareHandoff(a.hash, cast.me.publicKey, nowSeconds()), trail: aTrail }, cast.chidi.publicKey, "handed");
     // Paid to you: Kofi -> Mei -> you.
@@ -263,7 +253,6 @@ export function demoServices(opts: DemoOptions = {}): Services {
     const bTrail = trailOf([
       ["sent", 0, "kofi", places.kofi, 26],
       ["hop", 0, "mei", places.mei, 18],
-      ["hop", 1, "me", places.me, 1],
     ]);
     p.accept({ ...b.node.prepareHandoff(b.hash, cast.me.publicKey, nowSeconds()), trail: bTrail }, cast.mei.publicKey, "handed");
     for (const { route, at } of seededRoutes()) p.addRoute(route, at);
@@ -280,6 +269,9 @@ export function demoServices(opts: DemoOptions = {}): Services {
     async openPocket(w) {
       const { pocket, report } = await Pocket.open(w, memoryStore());
       await pocket.setMapOn(!opts.mapOff);
+      // Until the app sets its own (from the fake location), so the seeded
+      // slips get this phone's point like any handoff with the map on.
+      pocket.setLocator(() => places.me);
       if (!opts.notOnboarded && !opts.noKey) {
         await seedPocket(pocket);
         await pocket.finishOnboarding();

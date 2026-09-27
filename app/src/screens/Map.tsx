@@ -7,7 +7,7 @@ import { Appear, Button, Card, CountUp, Note, ScreenHead, buzz, spring, type, us
 import { MapGlyph } from "../ui/chrome";
 import type { Carrier } from "../useCarrier";
 import { ATTRIBUTION, SpreadMap, canSaveOffline, saveArea } from "../map/SpreadMap";
-import { distanceText, durationSpoken, durationText, hands, lastAt, routeMetres, settleMs, settledPoint, today } from "../map/geo";
+import { distanceText, durationSpoken, durationText, hands, lastAt, routeMetres, settleState, settledPoint, today } from "../map/geo";
 import type { Cell, Route } from "../map/types";
 
 export type MapView = "route" | "today";
@@ -165,6 +165,7 @@ function routeSpoken(r: Route, me: string, placeName?: (cell: Cell) => string | 
     if (p.kind === "hop") return `handed to ${who(p.who)} at ${hhmm(p.at)}${where}`;
     return `settled at ${hhmm(p.at)}${where}`;
   });
+  if (r.settled && !settledPoint(r)) parts.push("settled somewhere off the map");
   return `Map of ${r.amount} to ${who(r.to)}: ${parts.join(", ")}. About ${distanceText(routeMetres(r))} in all.`;
 }
 
@@ -199,7 +200,7 @@ function RouteCard({
 }) {
   const n = hands(route);
   const metres = routeMetres(route);
-  const ms = settleMs(route);
+  const settle = settleState(route);
   const i = mine.indexOf(route);
   const to = route.to === me ? "you" : shorten(route.to);
   return (
@@ -230,13 +231,23 @@ function RouteCard({
         <Stat spoken={`${distanceText(metres)} travelled`} label="travelled">
           <CountUp value={metres} format={distanceText} delay={80} style={m.statV} />
         </Stat>
-        <Stat spoken={ms === null ? "Not settled yet" : `${durationSpoken(ms)} to settle`} label="to settle">
-          {ms === null ? (
+        {typeof settle === "object" ? (
+          <Stat spoken={`${durationSpoken(settle.ms)} to settle`} label="to settle">
+            <CountUp value={settle.ms / 60_000} format={(x) => durationText(x * 60_000)} delay={160} style={m.statV} />
+          </Stat>
+        ) : settle === "open" ? (
+          <Stat spoken="Not settled yet" label="to settle">
             <Text style={[m.statV, m.statWait]}>not yet</Text>
-          ) : (
-            <CountUp value={ms / 60_000} format={(x) => durationText(x * 60_000)} delay={160} style={m.statV} />
-          )}
-        </Stat>
+          </Stat>
+        ) : (
+          // Settled, but this phone has no time for it: say so rather than guess one.
+          <Stat
+            spoken={settle === "elsewhere" ? "Settled somewhere off the map" : "Settled; how long it took is not known"}
+            label={settle === "elsewhere" ? "off the map" : "time unknown"}
+          >
+            <Text style={[m.statV, m.statWait, { color: C.greenInk }]}>settled</Text>
+          </Stat>
+        )}
       </View>
     </View>
   );
@@ -457,7 +468,7 @@ function OptIn({ c }: { c: Carrier }) {
             ) : null}
           </Card>
         </Appear>
-        <Note>While the map is off, this phone adds no place to anything it passes on, and nothing about where you are leaves it.</Note>
+        <Note>While the map is off, nothing about where you are leaves this phone, and no other phone can put a place next to your key.</Note>
       </ScrollView>
     </View>
   );

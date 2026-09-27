@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Keypair } from "@solana/web3.js";
 import { CELL_STEP, roundCell, type TrailPoint } from "./types";
+import { fitKey, settleState } from "./geo";
 import { MAX_ROUTES, MAX_TRAIL, ROUTE_TTL_MS, mergeTrail, parseRoutes, parseTrail, type StoredRoute } from "./trail";
 
 /**
@@ -113,5 +114,27 @@ describe("routes on disk", () => {
     expect(got).toHaveLength(MAX_ROUTES);
     expect(got[0]!.id).toBe(many[0]!.id);
     expect(got.some((r) => r.id === stale.id)).toBe(false);
+  });
+});
+
+describe("what the route card and camera read", () => {
+  const who = Keypair.generate().publicKey.toBase58();
+  const p = (kind: TrailPoint["kind"], seq: number, at: number): TrailPoint => ({ seq, kind, who, at, cell: roundCell(6.5, 3.4) });
+  const route = (points: TrailPoint[], settled: boolean) => ({ id: "ab".repeat(32), amount: "1 USDC", to: who, points, settled, mine: true });
+
+  it("never makes up a time to settle", () => {
+    expect(settleState(route([p("sent", 0, 0)], false))).toBe("open");
+    // Settled as learnt from the chain: no settled point here.
+    expect(settleState(route([p("sent", 0, 0), p("hop", 0, 60_000)], true))).toBe("elsewhere");
+    expect(settleState(route([p("settled", 1, 60_000)], true))).toBe("untimed");
+    expect(settleState(route([p("sent", 0, 0), p("settled", 1, 120_000)], true))).toEqual({ ms: 120_000 });
+  });
+
+  it("keys the camera on what is shown, not on rebuilt route objects", () => {
+    const a = route([p("sent", 0, 0), p("hop", 0, 1)], false);
+    const again = { ...a, points: [...a.points] };
+    expect(fitKey([a], a, null, "route")).toBe(fitKey([again], again, { lat: 1, lon: 1 }, "route"));
+    expect(fitKey([a], a, null, "route")).not.toBe(fitKey([a], { ...a, points: [...a.points, p("hop", 1, 2)] }, null, "route"));
+    expect(fitKey([a], a, null, "route")).not.toBe(fitKey([a], a, null, "today"));
   });
 });

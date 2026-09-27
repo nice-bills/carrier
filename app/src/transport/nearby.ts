@@ -32,7 +32,7 @@ import {
 } from "@carrier/mesh";
 import { hashNote } from "@carrier/protocol";
 import { hex, parseOffer } from "../chain";
-import { parseTrail, type TrailedOffer } from "../map/trail";
+import type { TrailedOffer } from "../map/trail";
 import { NONCE_BYTES, authMessage, verifyProof } from "./auth";
 import {
   LIMITS,
@@ -199,7 +199,8 @@ export class NearbyTransport implements Transport {
 
   /**
    * Ask an authenticated peer to hand over one note, naming us as the next
-   * carrier. The offer comes back with the peer's trail for it, checked.
+   * carrier. The offer comes back with the peer's trail for it, as sent: the
+   * pocket checks it (`parseTrail`) when it takes the note.
    */
   async request(peer: PublicKey, noteHash: string): Promise<TrailedOffer> {
     if (!NOTE_HASH.test(noteHash)) throw new MeshError("not a note hash");
@@ -443,9 +444,10 @@ export class NearbyTransport implements Transport {
           this.send(peer.endpointId, { kind: "nope", id: m.id });
           return;
         }
-        // The trail rides next to the signed offer, never inside it.
-        const trail = parseTrail(offer.trail);
-        this.send(peer.endpointId, { kind: "offer", id: m.id, body: encodeOffer(offer), ...(trail.length ? { trail } : {}) });
+        // The trail rides next to the signed offer, never inside it. It is the
+        // pocket's own, already checked.
+        const { trail } = offer;
+        this.send(peer.endpointId, { kind: "offer", id: m.id, body: encodeOffer(offer), ...(Array.isArray(trail) && trail.length ? { trail } : {}) });
         return;
       }
       case "digests":
@@ -526,9 +528,9 @@ export class NearbyTransport implements Transport {
       if (hex(hashNote(offer.bundle.note)) !== p.digest) {
         throw new MeshError("offer is for a different note");
       }
-      // A malformed trail is dropped here, quietly: it never costs the offer.
-      const trail = parseTrail(m.trail);
-      p.resolve(trail.length ? { ...offer, trail } : offer);
+      // The trail is untrusted and unchecked here: the pocket parses it once
+      // when it takes the note, and a malformed one never costs the offer.
+      p.resolve(m.trail !== undefined ? { ...offer, trail: m.trail } : offer);
     } catch (e) {
       this.strike(peer, "bad offer");
       p.reject(e instanceof Error ? e : new MeshError("bad offer"));

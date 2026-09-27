@@ -7,7 +7,7 @@ import { hhmm } from "../format";
 import { FONT } from "../ui/fonts";
 import { useReducedMotion } from "../ui/kit";
 import { CAMPUS, CAMPUS_BOUNDS, CAMPUS_LABELS, DEMO_CENTRE } from "./demoCampus";
-import { boundsOf, pinsFor, shapes } from "./geo";
+import { boundsOf, fitCells, fitKey, pinsFor, shapes } from "./geo";
 import { PIN_H, PIN_W, PinView } from "./Pins";
 import type { SpreadMapProps } from "./spreadMapProps";
 
@@ -149,17 +149,24 @@ export function SpreadMap({ routes, focus, me, here, mode, inset, locate, label,
   const fit = () => {
     if (!map) return;
     map.resize();
-    // Not laid out yet (or the controls are measured but the map is not): wait.
-    if (map.getContainer().clientHeight < inset.top + inset.bottom + 160) return;
-    const cells = mode === "route" ? (focus?.points.map((p) => p.cell) ?? []) : routes.flatMap((r) => r.points.map((p) => p.cell));
+    const el = map.getContainer();
+    // Not laid out yet: fit once it has a size.
+    if (!el.clientHeight || !el.clientWidth) {
+      map.once("resize", fit);
+      return;
+    }
+    const cells = fitCells(routes, focus, mode);
     const b = boundsOf(cells.length ? cells : here ? [here] : []) ?? [CAMPUS_BOUNDS.slice(0, 2), CAMPUS_BOUNDS.slice(2)];
     map.fitBounds(b as [[number, number], [number, number]], {
-      padding: { top: inset.top + 50, bottom: inset.bottom + 40, left: 70, right: 70 },
+      padding: clampPadding({ top: inset.top + 50, bottom: inset.bottom + 40, left: 70, right: 70 }, el.clientWidth, el.clientHeight),
       duration: reduced ? 0 : 600,
       maxZoom: 17,
     });
   };
-  useEffect(fit, [map, mode, focus, routes, here, inset.top, inset.bottom, reduced]);
+  // Refit only when what is shown changes (see `fitKey`), so a pan or zoom stays put.
+  const key = fitKey(routes, focus, here, mode);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(fit, [map, key, inset.top, inset.bottom, reduced]);
   useEffect(() => {
     if (!map || !locate) return;
     if (here) map.easeTo({ center: [here.lon, here.lat], zoom: 16.5, duration: reduced ? 0 : 600 });
@@ -197,6 +204,19 @@ export function SpreadMap({ routes, focus, me, here, mode, inset, locate, label,
       </View>
     </View>
   );
+}
+
+/**
+ * Padding that leaves at least `MIN_FIT` px of map to fit into: on a short
+ * (or narrow) map the controls' room is shrunk in proportion rather than the
+ * fit skipped.
+ */
+const MIN_FIT = 120;
+function clampPadding(p: { top: number; bottom: number; left: number; right: number }, w: number, h: number) {
+  const k = (room: number, a: number, b: number) => (a + b > room ? Math.max(0, room) / (a + b) : 1);
+  const v = k(h - MIN_FIT, p.top, p.bottom);
+  const x = k(w - MIN_FIT, p.left, p.right);
+  return { top: p.top * v, bottom: p.bottom * v, left: p.left * x, right: p.right * x };
 }
 
 /** The preview has no tile server to save from. */

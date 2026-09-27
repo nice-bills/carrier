@@ -59,7 +59,22 @@ export const lastAt = (r: Route) => r.points.reduce((t, p) => Math.max(t, p.at),
 export function settleMs(r: Route): number | null {
   const a = firstPoint(r);
   const b = settledPoint(r);
-  return a && b && r.settled ? Math.max(0, b.at - a.at) : null;
+  return a && b && a !== b && r.settled ? Math.max(0, b.at - a.at) : null;
+}
+
+/**
+ * What the card can honestly say about settling: how long it took; that it
+ * settled somewhere off the map (learnt from the chain, with no settled
+ * point on this phone); that it settled here but the start is unknown; or
+ * that it has not settled. Never a made-up time.
+ */
+export type SettleState = { ms: number } | "elsewhere" | "untimed" | "open";
+
+export function settleState(r: Route): SettleState {
+  if (!r.settled) return "open";
+  if (!settledPoint(r)) return "elsewhere";
+  const ms = settleMs(r);
+  return ms === null ? "untimed" : { ms };
 }
 
 /** People who held it: every point but the settlement. */
@@ -99,6 +114,22 @@ export function boundsOf(cells: readonly Cell[]): [[number, number], [number, nu
     [w, s],
     [e, n],
   ];
+}
+
+/** The cells the camera fits: the chosen route's, or every route's today. */
+export const fitCells = (routes: readonly Route[], focus: Route | null, mode: "route" | "today"): Cell[] =>
+  mode === "route" ? (focus?.points.map((p) => p.cell) ?? []) : routes.flatMap((r) => r.points.map((p) => p.cell));
+
+/**
+ * What the camera fits, as a key that changes only when that does: the mode,
+ * the chosen route and its point count (or every point, today), and `here`
+ * only when there is nothing else to fit. The routes are rebuilt on every
+ * pocket change; keying on them would undo the person's pan and zoom.
+ */
+export function fitKey(routes: readonly Route[], focus: Route | null, here: Cell | null, mode: "route" | "today"): string {
+  const n = fitCells(routes, focus, mode).length;
+  const at = !n && here ? `${here.lat},${here.lon}` : "";
+  return `${mode}|${mode === "route" ? (focus?.id ?? "") : ""}|${n}|${at}`;
 }
 
 /**

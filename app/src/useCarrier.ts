@@ -204,9 +204,10 @@ export function useCarrier(services: Services) {
   );
 
   /**
-   * Before a handoff: if the fix is stale, give the location up to
-   * `FIX_TIMEOUT_MS` to answer. Past that, or right after a miss, the handoff
-   * goes ahead and simply adds no point.
+   * Before signing a payment (and alongside a settlement, unawaited): if the
+   * fix is stale, give the location up to `FIX_TIMEOUT_MS` to answer. Past
+   * that, or right after a miss, it goes ahead and simply adds no point.
+   * Handoffs never call this; they use the cached fix.
    */
   const fixForHandoff = useCallback(async () => {
     if (!pocket?.mapOn || freshFix() || Date.now() - lastTry.current < FIX_RETRY_MS) return;
@@ -275,7 +276,10 @@ export function useCarrier(services: Services) {
       if (pulling.current.has(k)) return [] as Bundle[];
       pulling.current.add(k);
       try {
-        await fixForHandoff();
+        // Never waits on GPS: a note taken now gets our point from the fix
+        // already cached (kept fresh while the map is on). Someone handing us
+        // a note is a good moment to refresh it, in the background.
+        if (only) fixSoon.current();
         return await pocket.pull(r, peer, only);
       } catch {
         return [] as Bundle[];
@@ -284,7 +288,7 @@ export function useCarrier(services: Services) {
         setHoldings((h) => ({ ...h, [k]: 0 }));
       }
     },
-    [pocket, fixForHandoff],
+    [pocket],
   );
 
   const stopRadio = useCallback(async () => {
@@ -415,7 +419,6 @@ export function useCarrier(services: Services) {
         failed(`${shorten(peer)} walked out of range.`);
         return;
       }
-      await fixForHandoff();
       try {
         pocket.handTo(noteHash, peer);
         await r.hand(peer, [noteHash]);
@@ -438,7 +441,7 @@ export function useCarrier(services: Services) {
         }, HAND_WAIT_MS),
       );
     },
-    [pocket, peers, say, fixForHandoff],
+    [pocket, peers, say],
   );
 
   const take = useCallback(
@@ -524,9 +527,11 @@ export function useCarrier(services: Services) {
         const { [noteHash]: _gone, ...rest } = s;
         return rest;
       });
+      // Start a fix alongside the settlement, never after it: the receipt
+      // must not wait on GPS. `settledHere` uses whatever fix is cached then.
+      fixForHandoff().catch(() => {});
       try {
         const { signatures } = await services.chain.settle(wallet, bundle);
-        await fixForHandoff();
         const r = pocket.settledHere(bundle, signatures);
         setReceipt(r);
         const mine = r.carriers.find((c) => c.you);

@@ -66,7 +66,10 @@ describe("demo device", () => {
       expect(Math.abs(p.cell.lon - DEMO_CENTRE.lon)).toBeLessThan(0.004);
     }
     expect(await s.location.fix(1500)).toEqual(places.me);
-    // Handing the carried slip on adds this phone's point to the trail Zanele gets.
+    // This phone added its own point as it took each seeded slip.
+    const me = w.publicKey.toBase58();
+    expect(routes.filter((r) => r.points.some((p) => p.who === me && p.kind === "hop"))).not.toHaveLength(0);
+    // Handing the carried slip on: Zanele's point is hers to add, so this phone keeps none naming her.
     pocket.setLocator(() => places.me);
     const radio = s.createRadio(w, pocket, {});
     await radio.advertise(w.publicKey);
@@ -75,7 +78,9 @@ describe("demo device", () => {
     pocket.handTo(hash, cast.zanele.publicKey);
     await radio.hand(cast.zanele.publicKey, [hash]);
     await new Promise((r) => setTimeout(r, 1000));
-    expect(pocket.trailFor(hash).map((p) => `${p.kind}${p.seq}`)).toEqual(["sent0", "hop0", "hop1", "hop2"]);
+    expect(pocket.node.holds(hash)).toBe(false);
+    expect(pocket.trailFor(hash).map((p) => `${p.kind}${p.seq}`)).toEqual(["sent0", "hop0", "hop1"]);
+    expect(pocket.trailFor(hash).some((p) => p.who === cast.zanele.publicKey.toBase58())).toBe(false);
   });
 
   it("can start with the map off", async () => {
